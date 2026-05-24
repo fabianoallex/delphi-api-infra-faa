@@ -10,4 +10,39 @@
             <Dependencies/>
         </Projects>
     </ItemGroup>
+    <ProjectExtensions>
+        <Borland.Personality>Default.Personality.12</Borland.Personality>
+        <Borland.ProjectType/>
+        <BorlandProject>
+            <Default.Personality/>
+        </BorlandProject>
+    </ProjectExtensions>
+    <Target Name="Infra_UnitTests">
+        <MSBuild Projects="tests\Unit\Infra.UnitTests.dproj"/>
+    </Target>
+    <Target Name="Infra_UnitTests:Clean">
+        <MSBuild Projects="tests\Unit\Infra.UnitTests.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="Infra_UnitTests:Make">
+        <MSBuild Projects="tests\Unit\Infra.UnitTests.dproj" Targets="Make"/>
+    </Target>
+    <Target Name="Infra_IntegrationTests">
+        <MSBuild Projects="tests\Integration\Infra.IntegrationTests.dproj"/>
+    </Target>
+    <Target Name="Infra_IntegrationTests:Clean">
+        <MSBuild Projects="tests\Integration\Infra.IntegrationTests.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="Infra_IntegrationTests:Make">
+        <MSBuild Projects="tests\Integration\Infra.IntegrationTests.dproj" Targets="Make"/>
+    </Target>
+    <Target Name="Build">
+        <CallTarget Targets="Infra_UnitTests;Infra_IntegrationTests"/>
+    </Target>
+    <Target Name="Clean">
+        <CallTarget Targets="Infra_UnitTests:Clean;Infra_IntegrationTests:Clean"/>
+    </Target>
+    <Target Name="Make">
+        <CallTarget Targets="Infra_UnitTests:Make;Infra_IntegrationTests:Make"/>
+    </Target>
+    <Import Project="$(BDS)\Bin\CodeGear.Group.Targets" Condition="Exists('$(BDS)\Bin\CodeGear.Group.Targets')"/>
 </Project>
