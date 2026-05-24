@@ -1,0 +1,3 @@
+[submodule "modules/swag-doc"]
+	path = modules/swag-doc
+	url = https://github.com/marcelojaloto/SwagDoc.git
