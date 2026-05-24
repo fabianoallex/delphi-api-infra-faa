@@ -25,22 +25,28 @@ type
 
   { TPostgreSQLDialect }
 
-  TPostgreSQLDialect = class(TInterfacedObject, ISQLDialect)
+  TPostgreSQLDialect = class(TInterfacedObject, ISQLDialect, IMigrationDialect)
   public
     function GetReleaseSavepointSQL(const AName: string): string;
     function GetRollbackToSavepointSQL(const AName: string): string;
     function GetSavepointSQL(const AName: string): string;
     function SupportsRelease: Boolean;
+    function GetMigrationTableExistsSQL: string;
+    function GetMigrationLastVersionSQL: string;
+    function GetMigrationInsertVersionSQL: string;
   end;
 
   { TFirebirdDialect }
 
-  TFirebirdDialect = class(TInterfacedObject, ISQLDialect)
+  TFirebirdDialect = class(TInterfacedObject, ISQLDialect, IMigrationDialect)
   public
     function GetReleaseSavepointSQL(const AName: string): string;
     function GetRollbackToSavepointSQL(const AName: string): string;
     function GetSavepointSQL(const AName: string): string;
     function SupportsRelease: Boolean;
+    function GetMigrationTableExistsSQL: string;
+    function GetMigrationLastVersionSQL: string;
+    function GetMigrationInsertVersionSQL: string;
   end;
 
 implementation
@@ -95,6 +101,27 @@ begin
   Result := True;
 end;
 
+function TPostgreSQLDialect.GetMigrationTableExistsSQL: string;
+begin
+  Result :=
+    'SELECT CASE WHEN EXISTS(' +
+    '  SELECT 1 FROM information_schema.tables ' +
+    '  WHERE table_schema = ''public'' AND table_name = ''schema_migrations''' +
+    ') THEN 1 ELSE 0 END AS "EXISTS"';
+end;
+
+function TPostgreSQLDialect.GetMigrationLastVersionSQL: string;
+begin
+  Result := 'SELECT COALESCE(MAX(version), 0) AS VERSION FROM schema_migrations';
+end;
+
+function TPostgreSQLDialect.GetMigrationInsertVersionSQL: string;
+begin
+  Result :=
+    'INSERT INTO schema_migrations (version, applied_at) ' +
+    'VALUES (:VERSION, CURRENT_TIMESTAMP)';
+end;
+
 { TFirebirdDialect }
 
 function TFirebirdDialect.GetReleaseSavepointSQL(const AName: string): string;
@@ -115,6 +142,26 @@ end;
 function TFirebirdDialect.SupportsRelease: Boolean;
 begin
   Result := True;
+end;
+
+function TFirebirdDialect.GetMigrationTableExistsSQL: string;
+begin
+  Result :=
+    'SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END AS "EXISTS" ' +
+    'FROM RDB$RELATIONS ' +
+    'WHERE RDB$RELATION_NAME = ''SCHEMA_MIGRATIONS''';
+end;
+
+function TFirebirdDialect.GetMigrationLastVersionSQL: string;
+begin
+  Result := 'SELECT COALESCE(MAX(VERSION), 0) AS VERSION FROM SCHEMA_MIGRATIONS';
+end;
+
+function TFirebirdDialect.GetMigrationInsertVersionSQL: string;
+begin
+  Result :=
+    'INSERT INTO SCHEMA_MIGRATIONS (VERSION, APPLIED_AT) ' +
+    'VALUES (:VERSION, CURRENT_TIMESTAMP)';
 end;
 
 initialization

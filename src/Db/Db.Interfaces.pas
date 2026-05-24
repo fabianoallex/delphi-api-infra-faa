@@ -18,6 +18,16 @@ type
     function SupportsRelease: Boolean;
   end;
 
+  IMigrationDialect = interface
+    ['{A5F2C9E1-3B7D-4F8A-92C6-1E4D8B5F3A2C}']
+    // Retorna 1/0 na coluna "EXISTS" — verifica se a tabela SCHEMA_MIGRATIONS existe
+    function GetMigrationTableExistsSQL: string;
+    // Retorna o maior VERSION aplicado na coluna "VERSION" (0 se vazia)
+    function GetMigrationLastVersionSQL: string;
+    // INSERT com parâmetro nomeado :VERSION
+    function GetMigrationInsertVersionSQL: string;
+  end;
+
   IDBConnection = interface
     ['{0763D2A3-9EAE-4F40-8580-E5F742C82105}']
     function GetNativeConnection: TObject;

@@ -13,11 +13,12 @@ src/
     Common.ClockCache.pas     — Cache flyweight thread-safe dos Optional values
     Common.SystemContext.pas  — TClock e TSleep injetáveis (testabilidade)
   Db/
-    Db.Interfaces.pas         — IDBConnection, IDBConnectionPool, ITransaction, IQuery
+    Db.Interfaces.pas         — IDBConnection, IDBConnectionPool, ITransaction, IQuery, IMigrationDialect
     Db.Connection.Pool.pas    — TConnectionPool thread-safe com timeout e inatividade
     Db.SqlLoader.pas          — TSQLResult (ProcessTag, ApplyFilter, ReplaceLiteral)
-    Db.SqlDialect.pas         — Enum de dialetos SQL
-    Db.Adapters.FireDAC.pas   — Adapter FireDAC/Firebird
+    Db.SqlDialect.pas         — TFirebirdDialect, TPostgreSQLDialect (ISQLDialect + IMigrationDialect)
+    Db.Migrations.pas         — TMigrationItem, TDBMigrationEngine
+    Db.Adapters.FireDAC.pas   — Adapter FireDAC (agnóstico ao driver)
     Db.Adapters.Registry.pas  — TDBRegistry: registro de factories por nome
     Db.Constants.pas          — Constantes de configuração do pool
 tests/
@@ -125,6 +126,68 @@ E compile o arquivo de recursos com:
 
 ```bash
 brcc32.exe -fo src\Db\sql\queries.res src\Db\sql\queries.rc
+```
+
+---
+
+## Migrations
+
+O `Db.Migrations` fornece um engine de migrations baseado em **append-only immutable log**: scripts nunca são alterados após publicados em produção. Suporta Firebird e PostgreSQL via `IMigrationDialect` (implementado em ambos os dialetos da infra).
+
+### Funcionamento
+
+- A primeira migration do projeto deve criar a tabela `SCHEMA_MIGRATIONS`
+- O engine verifica automaticamente a versão atual e aplica apenas as pendentes
+- Cada migration roda em sua própria transação — falhas não desfazem as anteriores
+- DDL no Firebird faz auto-commit (comportamento nativo do banco)
+
+### Estrutura mínima da tabela de controle
+
+```sql
+-- Firebird (colocar no script MIG.0001):
+CREATE TABLE SCHEMA_MIGRATIONS (
+  VERSION    INTEGER   NOT NULL,
+  APPLIED_AT TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+  CONSTRAINT PK_SCHEMA_MIGRATIONS PRIMARY KEY (VERSION)
+);
+
+-- PostgreSQL (colocar no script MIG.0001):
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  version    INTEGER   NOT NULL,
+  applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+  CONSTRAINT pk_schema_migrations PRIMARY KEY (version)
+);
+```
+
+### Uso no projeto
+
+```pascal
+uses
+  Db.Migrations in 'infra\src\Db\Db.Migrations.pas';
+
+const
+  MIGRATIONS: array[0..2] of TMigrationItem = (
+    (Version: 1; ScriptName: 'MIG.0001'; ParamReplaceProc: nil; Terminator: ';'),
+    (Version: 2; ScriptName: 'MIG.0002'; ParamReplaceProc: nil; Terminator: ';'),
+    (Version: 3; ScriptName: 'MIG.0003'; ParamReplaceProc: @MIG_0003Params; Terminator: '&')
+  );
+
+// Na inicialização da aplicação, antes de iniciar o servidor:
+var LEngine := TDBMigrationEngine.Create(TDBRegistry.GetFactory('meu_banco'));
+LEngine.Execute(MIGRATIONS);
+LEngine.Free;
+```
+
+O campo `Terminator` define o separador de statements dentro do script (`;` para SQL padrão, `&` ou outro caractere quando o script contém blocos que já usam `;` internamente, como stored procedures no Firebird).
+
+O `ParamReplaceProc` é um callback opcional para substituir placeholders no script antes da execução — útil para seeds com senhas hasheadas ou valores de ambiente:
+
+```pascal
+procedure MIG_0003Params(AScript: TStrings);
+begin
+  AScript.Text := StringReplace(AScript.Text, ':ADMIN_EMAIL',
+    QuotedStr(GetEnvOrDefault('ADMIN_EMAIL', 'admin@exemplo.com')), [rfReplaceAll]);
+end;
 ```
 
 ---
