@@ -69,21 +69,51 @@ infra\src\Common;infra\src\Db
 
 ```pascal
 uses
-  Common.Optionals    in 'infra\src\Common\Common.Optionals.pas',
-  Common.JsonMapper   in 'infra\src\Common\Common.JsonMapper.pas',
-  Common.Helpers      in 'infra\src\Common\Common.Helpers.pas',
-  Common.ClockCache   in 'infra\src\Common\Common.ClockCache.pas',
+  Common.Optionals     in 'infra\src\Common\Common.Optionals.pas',
+  Common.JsonMapper    in 'infra\src\Common\Common.JsonMapper.pas',
+  Common.Helpers       in 'infra\src\Common\Common.Helpers.pas',
+  Common.ClockCache    in 'infra\src\Common\Common.ClockCache.pas',
   Common.SystemContext in 'infra\src\Common\Common.SystemContext.pas',
-  Db.Interfaces       in 'infra\src\Db\Db.Interfaces.pas',
-  Db.Connection.Pool  in 'infra\src\Db\Db.Connection.Pool.pas',
-  Db.SqlLoader        in 'infra\src\Db\Db.SqlLoader.pas',
-  Db.SqlDialect       in 'infra\src\Db\Db.SqlDialect.pas',
+  Db.Interfaces        in 'infra\src\Db\Db.Interfaces.pas',
+  Db.Connection.Pool   in 'infra\src\Db\Db.Connection.Pool.pas',
+  Db.SqlLoader         in 'infra\src\Db\Db.SqlLoader.pas',
+  Db.SqlDialect        in 'infra\src\Db\Db.SqlDialect.pas',
   Db.Adapters.Registry in 'infra\src\Db\Db.Adapters.Registry.pas',
   Db.Adapters.FireDAC  in 'infra\src\Db\Db.Adapters.FireDAC.pas',
   Db.Constants         in 'infra\src\Db\Db.Constants.pas';
 ```
 
-### 3. Recursos SQL (TSQLLoader)
+### 3. Units FireDAC obrigatórias
+
+O FireDAC usa `initialization` de cada unit para registrar suas factories internas. A ausência de qualquer uma dessas units causa erros de "Object factory missing" em runtime — não em compilação.
+
+```pascal
+uses
+  Winapi.Windows,          // necessário para SetDllDirectory
+  FireDAC.Stan.Def,        // definições e factories base
+  FireDAC.Stan.Pool,       // suporte a pool de conexões
+  FireDAC.Stan.Async,      // operações assíncronas
+  FireDAC.Stan.ExprFuncs,  // funções de expressão
+  FireDAC.UI.Intf,         // interface abstrata de wait cursor
+  FireDAC.ConsoleUI.Wait,  // wait cursor para {$APPTYPE CONSOLE}
+                           // Para {$APPTYPE GUI}: usar FireDAC.VCLUI.Wait
+  FireDAC.Phys,            // camada física base
+  FireDAC.Phys.FB,         // driver Firebird (ou FireDAC.Phys.PG para PostgreSQL)
+  FireDAC.DApt;            // factory do TFDQuery (obrigatório para Open/ExecSQL)
+```
+
+### 4. fbclient.dll no Windows 64-bit
+
+Em instalações 64-bit do Windows, a `fbclient.dll` 32-bit fica em `WOW64\`, fora do PATH do sistema. O parâmetro `VendorLib` no `ConnectionParams` **não funciona** para o driver FB — o FireDAC carrega a DLL antes de ler os parâmetros de conexão. A solução é chamar `SetDllDirectory` no início do `begin` do DPR, antes de qualquer operação FireDAC:
+
+```pascal
+begin
+  SetDllDirectory('C:\Program Files\Firebird\Firebird_2_5\WOW64');
+  // ... restante da inicialização
+end.
+```
+
+### 5. Recursos SQL (TSQLLoader)
 
 O `Db.SqlLoader` não embute recursos — cada projeto fornece os seus. Adicione ao DPR:
 
