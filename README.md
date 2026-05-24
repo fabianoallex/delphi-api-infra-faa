@@ -99,6 +99,63 @@ brcc32.exe -fo src\Db\sql\queries.res src\Db\sql\queries.rc
 
 ---
 
+## Suporte a bancos de dados
+
+O adaptador FireDAC (`Db.Adapters.FireDAC`) é agnóstico ao driver — o banco é definido pelo `DriverID` nos parâmetros de conexão. Os dialetos SQL (`Db.SqlDialect`) para savepoints já estão registrados para Firebird e PostgreSQL.
+
+### Firebird
+
+No DPR do projeto, inclua o driver FireDAC:
+
+```pascal
+uses
+  FireDAC.Phys.FB;
+```
+
+Arquivo de configuração (`.ini` ou equivalente):
+
+```ini
+[Database]
+DriverID=FB
+Database=C:\caminho\para\banco.fdb
+User_Name=SYSDBA
+Password=masterkey
+CharacterSet=UTF8
+VendorLib=C:\Program Files\Firebird\Firebird_2_5\WOW64\fbclient.dll
+
+[Options]
+SQLDialect=Firebird
+```
+
+### PostgreSQL
+
+No DPR do projeto, inclua o driver FireDAC:
+
+```pascal
+uses
+  FireDAC.Phys.PG;
+```
+
+Arquivo de configuração:
+
+```ini
+[Database]
+DriverID=PG
+Database=meu_banco
+Server=localhost
+Port=5432
+User_Name=postgres
+Password=senha
+CharacterSet=UTF8
+
+[Options]
+SQLDialect=PostgreSQL
+```
+
+> Os dois bancos podem coexistir no mesmo binário — basta registrar duas factories no `TDBRegistry` com nomes distintos e incluir ambos os units de driver no DPR.
+
+---
+
 ## Licença
 
 MIT — consulte o arquivo [LICENSE](LICENSE).
