@@ -31,13 +31,22 @@ unit Db.Migrations;
   --- ADICIONANDO SCRIPTS ---
   Sempre adicione ao final de MIGRATIONS_LIST para garantir ordem cronológica.
 
-  --- COMPORTAMENTO POR MIGRATION ---
-  Cada migration roda em sua própria transação. Se falhar, as anteriores já estão
-  commitadas e o processo reinicia a partir da versão pendente.
+  --- CAMPO IsDDL ---
+  Cada TMigrationItem declara se o script é DDL ou DML via o campo IsDDL.
+  O padrão (False) indica DML — script e registro de versão na mesma transação,
+  garantindo atomicidade completa.
 
-  Nota Firebird: DDL (CREATE TABLE, ALTER TABLE, etc.) dentro de uma transaction
-  faz auto-commit no Firebird. Isso é comportamento nativo do banco — não é um
-  bug do engine.
+  IsDDL = False (DML): script + INSERT de versão → uma transação atômica.
+    Use para: INSERTs de seed, UPDATEs de dados, DELETEs de limpeza.
+
+  IsDDL = True  (DDL): script em T1 (commit) → INSERT de versão em T2 separada.
+    Use para: CREATE TABLE, ALTER TABLE, CREATE INDEX, DROP, etc.
+    Motivo: em Firebird, DDL faz auto-commit da transação ativa. Em PostgreSQL,
+    DDL é transacional — mas o comportamento de duas transações é seguro para
+    ambos os bancos, tornando IsDDL=True portável.
+
+  ATENÇÃO: esquecer IsDDL=True em um script DDL provoca erro "Table unknown"
+  no INSERT de versão (o mesmo erro que motivou este flag).
 *******************************************************************************}
 
 interface
@@ -55,6 +64,7 @@ type
     ScriptName: string;
     ParamReplaceProc: TParamReplaceProc;
     Terminator: string;
+    IsDDL: Boolean;
   end;
 
   { TDBMigrationEngine }
@@ -65,7 +75,8 @@ type
     function ResolveMigrationDialect: IMigrationDialect;
     function GetCurrentVersion(AMigDialect: IMigrationDialect): Integer;
     procedure ApplyScript(const AMigration: TMigrationItem; ATransaction: ITransaction);
-    procedure InsertVersionRecord(AVersion: Integer; AMigDialect: IMigrationDialect);
+    procedure InsertVersionRecord(AVersion: Integer; AMigDialect: IMigrationDialect;
+      ATransaction: ITransaction = nil);
   public
     constructor Create(AFactory: IDBFactory);
     procedure Execute(const AMigrations: array of TMigrationItem);
@@ -160,23 +171,35 @@ begin
 end;
 
 procedure TDBMigrationEngine.InsertVersionRecord(AVersion: Integer;
-  AMigDialect: IMigrationDialect);
+  AMigDialect: IMigrationDialect; ATransaction: ITransaction);
 var
   LScope: IScopeTransaction;
   LQuery: IQuery;
 begin
-  // Transação separada do script DDL: em Firebird, DDL auto-commita a transação
-  // corrente. O INSERT precisa de uma transação nova que enxergue a tabela criada.
-  LScope := FFactory.GetPool.AcquireQuery(LQuery);
-  LScope.StartTransaction;
-  try
+  if Assigned(ATransaction) then
+  begin
+    // DML: INSERT na mesma transação do script para garantir atomicidade.
+    // Usa CreateQuery diretamente para não interferir com o IScopeTransaction do chamador.
+    LQuery := FFactory.CreateQuery(ATransaction.GetConnection, ATransaction);
     LQuery.Sql := AMigDialect.GetMigrationInsertVersionSQL;
     LQuery.Params.Integers['VERSION'] := AVersion;
     LQuery.ExecSql;
-    LScope.Commit;
-  except
-    LScope.Rollback;
-    raise;
+  end
+  else
+  begin
+    // DDL: Firebird auto-commita DDL; precisamos de transação nova
+    // para enxergar a tabela criada pelo script anterior.
+    LScope := FFactory.GetPool.AcquireQuery(LQuery);
+    LScope.StartTransaction;
+    try
+      LQuery.Sql := AMigDialect.GetMigrationInsertVersionSQL;
+      LQuery.Params.Integers['VERSION'] := AVersion;
+      LQuery.ExecSql;
+      LScope.Commit;
+    except
+      LScope.Rollback;
+      raise;
+    end;
   end;
 end;
 
@@ -196,19 +219,37 @@ begin
     if LMigration.Version <= LCurrentVersion then
       Continue;
 
-    // Transação 1: executa o script (pode conter DDL)
-    LScope := FFactory.GetPool.AcquireQuery(LQuery);
-    LScope.StartTransaction;
-    try
-      ApplyScript(LMigration, LScope.GetOriginalTransaction);
-      LScope.Commit;
-    except
-      LScope.Rollback;
-      raise;
-    end;
+    if LMigration.IsDDL then
+    begin
+      // T1: executa o DDL e commita (Firebird auto-commita; PostgreSQL commita aqui)
+      LScope := FFactory.GetPool.AcquireQuery(LQuery);
+      LScope.StartTransaction;
+      try
+        ApplyScript(LMigration, LScope.GetOriginalTransaction);
+        LScope.Commit;
+      except
+        LScope.Rollback;
+        raise;
+      end;
 
-    // Transação 2: registra a versão aplicada
-    InsertVersionRecord(LMigration.Version, LMigDialect);
+      // T2: registra versão — transação nova enxerga a tabela criada acima
+      InsertVersionRecord(LMigration.Version, LMigDialect, nil);
+    end
+    else
+    begin
+      // DML: script + versão em uma única transação (atômica)
+      LScope := FFactory.GetPool.AcquireQuery(LQuery);
+      LScope.StartTransaction;
+      try
+        ApplyScript(LMigration, LScope.GetOriginalTransaction);
+        InsertVersionRecord(LMigration.Version, LMigDialect,
+          LScope.GetOriginalTransaction);
+        LScope.Commit;
+      except
+        LScope.Rollback;
+        raise;
+      end;
+    end;
   end;
 end;
 

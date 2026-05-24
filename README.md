@@ -167,9 +167,9 @@ uses
 
 const
   MIGRATIONS: array[0..2] of TMigrationItem = (
-    (Version: 1; ScriptName: 'MIG.0001'; ParamReplaceProc: nil; Terminator: ';'),
-    (Version: 2; ScriptName: 'MIG.0002'; ParamReplaceProc: nil; Terminator: ';'),
-    (Version: 3; ScriptName: 'MIG.0003'; ParamReplaceProc: @MIG_0003Params; Terminator: '&')
+    (Version: 1; ScriptName: 'MIG.0001'; ParamReplaceProc: nil; Terminator: ';'; IsDDL: True),
+    (Version: 2; ScriptName: 'MIG.0002'; ParamReplaceProc: nil; Terminator: ';'; IsDDL: True),
+    (Version: 3; ScriptName: 'MIG.0003'; ParamReplaceProc: @MIG_0003Params; Terminator: '&'; IsDDL: False)
   );
 
 // Na inicialização da aplicação, antes de iniciar o servidor:
@@ -177,6 +177,8 @@ var LEngine := TDBMigrationEngine.Create(TDBRegistry.GetFactory('meu_banco'));
 LEngine.Execute(MIGRATIONS);
 LEngine.Free;
 ```
+
+O campo `IsDDL` indica se o script contém instruções DDL (`CREATE TABLE`, `ALTER TABLE`, etc.). Scripts DDL são executados em transação separada do registro de versão — necessário porque em Firebird o DDL auto-commita a transação ativa. Scripts DML (`IsDDL: False`) executam script e registro de versão em uma única transação atômica.
 
 O campo `Terminator` define o separador de statements dentro do script (`;` para SQL padrão, `&` ou outro caractere quando o script contém blocos que já usam `;` internamente, como stored procedures no Firebird).
 
