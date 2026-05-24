@@ -65,8 +65,7 @@ type
     function ResolveMigrationDialect: IMigrationDialect;
     function GetCurrentVersion(AMigDialect: IMigrationDialect): Integer;
     procedure ApplyScript(const AMigration: TMigrationItem; ATransaction: ITransaction);
-    procedure InsertVersionRecord(AVersion: Integer; AMigDialect: IMigrationDialect;
-      ATransaction: ITransaction);
+    procedure InsertVersionRecord(AVersion: Integer; AMigDialect: IMigrationDialect);
   public
     constructor Create(AFactory: IDBFactory);
     procedure Execute(const AMigrations: array of TMigrationItem);
@@ -161,12 +160,14 @@ begin
 end;
 
 procedure TDBMigrationEngine.InsertVersionRecord(AVersion: Integer;
-  AMigDialect: IMigrationDialect; ATransaction: ITransaction);
+  AMigDialect: IMigrationDialect);
 var
   LScope: IScopeTransaction;
   LQuery: IQuery;
 begin
-  LScope := FFactory.GetPool.AcquireQuery(LQuery, ATransaction);
+  // Transação separada do script DDL: em Firebird, DDL auto-commita a transação
+  // corrente. O INSERT precisa de uma transação nova que enxergue a tabela criada.
+  LScope := FFactory.GetPool.AcquireQuery(LQuery);
   LScope.StartTransaction;
   try
     LQuery.Sql := AMigDialect.GetMigrationInsertVersionSQL;
@@ -195,16 +196,19 @@ begin
     if LMigration.Version <= LCurrentVersion then
       Continue;
 
+    // Transação 1: executa o script (pode conter DDL)
     LScope := FFactory.GetPool.AcquireQuery(LQuery);
     LScope.StartTransaction;
     try
       ApplyScript(LMigration, LScope.GetOriginalTransaction);
-      InsertVersionRecord(LMigration.Version, LMigDialect, LScope.GetOriginalTransaction);
       LScope.Commit;
     except
       LScope.Rollback;
       raise;
     end;
+
+    // Transação 2: registra a versão aplicada
+    InsertVersionRecord(LMigration.Version, LMigDialect);
   end;
 end;
 
