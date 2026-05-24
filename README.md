@@ -154,6 +154,10 @@ SQLDialect=PostgreSQL
 
 > Os dois bancos podem coexistir no mesmo binário — basta registrar duas factories no `TDBRegistry` com nomes distintos e incluir ambos os units de driver no DPR.
 
+### Outros componentes de acesso a dados
+
+A arquitetura é extensível: qualquer componente (Zeos, UniDAC, dbExpress, etc.) pode ser suportado implementando as interfaces `IDBConnection`, `IDBConnectionPool`, `ITransaction` e `IQuery` definidas em `Db.Interfaces.pas` e registrando a factory no `TDBRegistry`.
+
 ---
 
 ## Licença
