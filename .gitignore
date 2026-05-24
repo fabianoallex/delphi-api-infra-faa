@@ -32,3 +32,6 @@ OSXARM64/
 
 # DCU output (se usar subdir)
 dcu/
+
+# Banco de dados de teste (binário, ambiente-específico)
+tests/Integration/db/
