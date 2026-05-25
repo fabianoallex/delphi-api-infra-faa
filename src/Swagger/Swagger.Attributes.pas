@@ -49,6 +49,30 @@ type
     property Value: Integer read FValue;
   end;
 
+  /// <summary>
+  /// Restringe o campo a uma lista de valores válidos — "enum": [...].
+  /// Valores separados por vírgula: [SwagEnum('ativo,inativo,suspenso')]
+  /// </summary>
+  SwagEnum = class(TCustomAttribute)
+  private
+    FValues: string;
+  public
+    constructor Create(const AValues: string);
+    property Values: string read FValues;
+  end;
+
+  /// <summary>
+  /// Restringe o campo a um padrão regex — "pattern": "...".
+  /// Exemplo: [SwagPattern('^[A-Z]{2}$')]
+  /// </summary>
+  SwagPattern = class(TCustomAttribute)
+  private
+    FValue: string;
+  public
+    constructor Create(const AValue: string);
+    property Value: string read FValue;
+  end;
+
 implementation
 
 constructor SwagProp.Create(const ADescription: string);
@@ -79,6 +103,18 @@ begin
 end;
 
 constructor SwagMax.Create(AValue: Integer);
+begin
+  inherited Create;
+  FValue := AValue;
+end;
+
+constructor SwagEnum.Create(const AValues: string);
+begin
+  inherited Create;
+  FValues := AValues;
+end;
+
+constructor SwagPattern.Create(const AValue: string);
 begin
   inherited Create;
   FValue := AValue;

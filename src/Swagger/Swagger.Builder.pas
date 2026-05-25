@@ -245,7 +245,8 @@ end;
 
 function BuildPropertyJson(ARttiType: TRttiType;
   out AIsRequired: Boolean; out ANullable: Boolean;
-  AAttr: SwagProp; AMin: SwagMin; AMax: SwagMax): TJSONObject;
+  AAttr: SwagProp; AMin: SwagMin; AMax: SwagMax;
+  AEnum: SwagEnum; APattern: SwagPattern): TJSONObject;
 var
   LBase, LJsonType, LFormat: string;
   LIsOpt, LIsNull: Boolean;
@@ -299,6 +300,17 @@ begin
     if LJsonType = 'string' then Result.AddPair('maxLength', TJSONNumber.Create(AMax.Value))
                             else Result.AddPair('maximum',   TJSONNumber.Create(AMax.Value));
   end;
+
+  if Assigned(AEnum) then
+  begin
+    var LEnumArr := TJSONArray.Create;
+    for var LItem in AEnum.Values.Split([',']) do
+      LEnumArr.Add(Trim(LItem));
+    Result.AddPair('enum', LEnumArr);
+  end;
+
+  if Assigned(APattern) then
+    Result.AddPair('pattern', APattern.Value);
 end;
 
 // ---------------------------------------------------------------------------
@@ -354,18 +366,23 @@ begin
         if LFieldName.IsEmpty then Continue;
 
         LSwagProp := nil;
-        var LSwagMin: SwagMin := nil;
-        var LSwagMax: SwagMax := nil;
+        var LSwagMin:     SwagMin     := nil;
+        var LSwagMax:     SwagMax     := nil;
+        var LSwagEnum:    SwagEnum    := nil;
+        var LSwagPattern: SwagPattern := nil;
         for LAttr in LMethod.GetAttributes do
         begin
-          if LAttr is SwagProp then LSwagProp := SwagProp(LAttr)
-          else if LAttr is SwagMin then LSwagMin := SwagMin(LAttr)
-          else if LAttr is SwagMax then LSwagMax := SwagMax(LAttr);
+          if      LAttr is SwagProp    then LSwagProp    := SwagProp(LAttr)
+          else if LAttr is SwagMin     then LSwagMin     := SwagMin(LAttr)
+          else if LAttr is SwagMax     then LSwagMax     := SwagMax(LAttr)
+          else if LAttr is SwagEnum    then LSwagEnum    := SwagEnum(LAttr)
+          else if LAttr is SwagPattern then LSwagPattern := SwagPattern(LAttr);
         end;
 
         LIsRequired := True;
         LNullable   := False;
-        LPropJson   := BuildPropertyJson(LMethod.ReturnType, LIsRequired, LNullable, LSwagProp, LSwagMin, LSwagMax);
+        LPropJson   := BuildPropertyJson(LMethod.ReturnType, LIsRequired, LNullable,
+                         LSwagProp, LSwagMin, LSwagMax, LSwagEnum, LSwagPattern);
 
         if LNullable then
           LPropJson.AddPair('nullable', TJSONBool.Create(True));
