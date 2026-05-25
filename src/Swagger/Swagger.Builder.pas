@@ -40,6 +40,12 @@ type
       ASchemes: TSwagTransferProtocolSchemes = [tpsHttp]);
     class procedure Serve(const ABasePath: string = '/swagger');
 
+    /// <summary>
+    /// Retorna o doc em construção sem liberá-lo. Usar antes de Serve para
+    /// registrar integrações que precisam ler o doc (ex: TMcpServer.Register).
+    /// </summary>
+    class function CurrentDoc: TSwagDoc;
+
     class function Get(const AUri: string): TRouteDocBuilder;
     class function Post(const AUri: string): TRouteDocBuilder;
     class function Put(const AUri: string): TRouteDocBuilder;
@@ -561,6 +567,11 @@ begin
   FDoc.Schemes      := ASchemes;
   FDoc.Consumes.Add('application/json');
   FDoc.Produces.Add('application/json');
+end;
+
+class function TRouteDoc.CurrentDoc: TSwagDoc;
+begin
+  Result := FDoc;
 end;
 
 class procedure TRouteDoc.Serve(const ABasePath: string);
