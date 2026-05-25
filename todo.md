@@ -106,4 +106,5 @@ pedido_list     pedido_create     pedido_get
 - [x] Item 2 — `isError: true` no envelope `tools/call` quando HTTP status >= 400
 - [x] Item 3 — Constraints `[SwagMin]`/`[SwagMax]` no schema: strings → `minLength`/`maxLength`, números → `minimum`/`maximum`
 - [x] Item 4 — `additionalProperties: false` em todo `inputSchema` gerado pelo MCP
+- [x] Item 5 — Paginação em `GET /produtos`: `page`, `limit`, `search`, `orderBy` (mesmo padrão de `/cidades`)
 - [x] Item 6 — Isolamento por domínio via múltiplos endpoints filtrados por tag (`/mcp/produtos`, `/mcp/cidades`) — abordagem preferida ao prefixo no nome da tool
