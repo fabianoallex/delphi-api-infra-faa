@@ -679,10 +679,8 @@ begin
     LObj := LIntf as TObject;
     LRttiType := FRttiContext.GetType(LObj.ClassType) as TRttiInstanceType;
 
-    for LMethod in LRttiType.GetMethods do
+    for LMethod in LRttiType.GetDeclaredMethods do
     begin
-      if LMethod.Parent.Handle <> LRttiType.Handle then
-        Continue;
       if LMethod.MethodKind <> mkFunction then
         Continue;
       if Length(LMethod.GetParameters) <> 0 then

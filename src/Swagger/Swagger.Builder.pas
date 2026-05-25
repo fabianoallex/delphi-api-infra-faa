@@ -303,10 +303,9 @@ begin
     LCtx := TRttiContext.Create;
     try
       LRttiType := LCtx.GetType(LImplClass) as TRttiInstanceType;
-      for LMethod in LRttiType.GetMethods do
+      for LMethod in LRttiType.GetDeclaredMethods do
       begin
-        if LMethod.Parent.Handle <> LRttiType.Handle then Continue;
-        if LMethod.MethodKind <> mkFunction           then Continue;
+        if LMethod.MethodKind <> mkFunction then Continue;
         if Length(LMethod.GetParameters) > 0          then Continue;
         if LMethod.ReturnType = nil                   then Continue;
         if not LMethod.Name.StartsWith('Get', True)   then Continue;
