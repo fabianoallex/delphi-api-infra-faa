@@ -64,7 +64,8 @@ type
     class function OnToolsCall(AId: TJSONValue; AParams: TJSONObject;
       ATools: TObjectList<TTool>; const ABaseUrl: string): TJSONObject;
     class function HttpCall(const AMethod, APath: string; AArgs: TJSONObject;
-      const APathParams: TArray<string>; const ABaseUrl: string): string;
+      const APathParams: TArray<string>; const ABaseUrl: string;
+      out AStatusCode: Integer): string;
   public
     class constructor Create;
     class destructor Destroy;
@@ -321,6 +322,7 @@ var
   LArgs: TJSONObject;
   LTool, LFound: TTool;
   LOutput: string;
+  LStatusCode: Integer;
   LItem: TJSONObject;
   LContent: TJSONArray;
   LResult: TJSONObject;
@@ -348,7 +350,7 @@ begin
     Exit(MakeError(AId, -32602, 'Tool desconhecida: ' + LName));
 
   try
-    LOutput := HttpCall(LFound.Method, LFound.Path, LArgs, LFound.PathParams, ABaseUrl);
+    LOutput := HttpCall(LFound.Method, LFound.Path, LArgs, LFound.PathParams, ABaseUrl, LStatusCode);
   except
     on E: Exception do
       Exit(MakeError(AId, -32603, 'Falha na execução: ' + E.Message));
@@ -363,6 +365,8 @@ begin
 
   LResult := TJSONObject.Create;
   LResult.AddPair('content', LContent);
+  if LStatusCode >= 400 then
+    LResult.AddPair('isError', TJSONBool.Create(True));
 
   Result := MakeResult(AId, LResult);
 end;
@@ -371,7 +375,7 @@ end;
 
 class function TMcpServer.HttpCall(const AMethod, APath: string;
   AArgs: TJSONObject; const APathParams: TArray<string>;
-  const ABaseUrl: string): string;
+  const ABaseUrl: string; out AStatusCode: Integer): string;
 var
   LUrl: string;
   LBody: TJSONObject;
@@ -415,7 +419,8 @@ begin
         else if SameText(AMethod, 'PATCH')  then LResponse := LHttp.Patch(LUrl, LStream)
         else if SameText(AMethod, 'DELETE') then LResponse := LHttp.Delete(LUrl)
         else                                     LResponse := LHttp.Get(LUrl);
-        Result := LResponse.ContentAsString(TEncoding.UTF8);
+        AStatusCode := LResponse.StatusCode;
+        Result      := LResponse.ContentAsString(TEncoding.UTF8);
       finally
         LStream.Free;
       end;

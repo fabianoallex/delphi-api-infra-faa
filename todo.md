@@ -103,3 +103,5 @@ pedido_list     pedido_create     pedido_get
 - [x] Nomes de tools singularizados (`create_produto`, `list_produto`)
 - [x] Campo `example` incorporado no `description` da propriedade
 - [x] `AddElement` para compatibilidade com versões anteriores do Delphi
+- [x] Item 2 — `isError: true` no envelope `tools/call` quando HTTP status >= 400
+- [x] Item 6 — Isolamento por domínio via múltiplos endpoints filtrados por tag (`/mcp/produtos`, `/mcp/cidades`) — abordagem preferida ao prefixo no nome da tool
