@@ -1,4 +1,4 @@
-unit MCP.Server;
+﻿unit MCP.Server;
 
 {
   Expõe as rotas documentadas no TSwagDoc como tools MCP (Model Context Protocol).
@@ -78,7 +78,6 @@ type
 implementation
 
 uses
-  System.Classes,
   System.Net.HttpClient,
   Swag.Doc.Path,
   Swag.Doc.Path.Operation.RequestParameter,
@@ -189,6 +188,21 @@ begin
         LPropObj.AddPair('description', LParam.Description);
       LProps.AddPair(LParam.Name, LPropObj);
       LRequired.Add(LParam.Name);
+    end
+    else if LParam.InLocation = rpiQuery then
+    begin
+      case LParam.TypeParameter of
+        stpNumber:  LTypeName := 'number';
+        stpBoolean: LTypeName := 'boolean';
+        stpInteger: LTypeName := 'integer';
+      else          LTypeName := 'string';
+      end;
+      LPropObj := TJSONObject.Create;
+      LPropObj.AddPair('type', LTypeName);
+      if not LParam.Description.IsEmpty then
+        LPropObj.AddPair('description', LParam.Description);
+      LProps.AddPair(LParam.Name, LPropObj);
+      // query params are optional — not added to required
     end
     else if (LParam.InLocation = rpiBody) and not LParam.Schema.Name.IsEmpty then
     begin
@@ -513,7 +527,7 @@ begin
     begin
       LBody := Dispatch(Req.Body);
       if LBody <> '' then
-        Res.ContentType('application/json').Send(LBody)
+        Res.ContentType('application/json; charset=utf-8').Send(LBody)
       else
         Res.Status(202).Send('');
     end);
