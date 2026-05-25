@@ -14,6 +14,9 @@ uses
   Common.JsonMapper in '..\..\src\Common\Common.JsonMapper.pas',
   Common.Helpers in '..\..\src\Common\Common.Helpers.pas',
   Common.DTO.Base in '..\..\src\Common\Common.DTO.Base.pas',
+  Common.OrderBy in '..\..\src\Common\Common.OrderBy.pas',
+  Common.Pagination in '..\..\src\Common\Common.Pagination.pas',
+  MCP.Utils in '..\..\src\MCP\MCP.Utils.pas',
   Swagger.Attributes in '..\..\src\Swagger\Swagger.Attributes.pas',
   Common.HelpersTests in 'Common.HelpersTests.pas',
   Common.JsonMapperTests in 'Common.JsonMapperTests.pas',
@@ -23,7 +26,10 @@ uses
   OptionalsTests in 'OptionalsTests.pas',
   Db.PoolTests in 'Db.PoolTests.pas',
   Db.SqlLoaderTests in 'Db.SqlLoaderTests.pas',
-  Swagger.SchemaTests in 'Swagger.SchemaTests.pas';
+  Swagger.SchemaTests in 'Swagger.SchemaTests.pas',
+  Common.OrderByTests in 'Common.OrderByTests.pas',
+  Common.PaginationTests in 'Common.PaginationTests.pas',
+  MCP.UtilsTests in 'MCP.UtilsTests.pas';
 
 var
   runner: ITestRunner;
