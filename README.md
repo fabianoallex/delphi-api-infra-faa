@@ -21,6 +21,10 @@ src/
     Db.Adapters.FireDAC.pas   — Adapter FireDAC (agnóstico ao driver)
     Db.Adapters.Registry.pas  — TDBRegistry: registro de factories por nome
     Db.Constants.pas          — Constantes de configuração do pool
+  Swagger/
+    Swagger.Attributes.pas    — [SwagProp]: atributo de documentação por campo
+    Swagger.Builder.pas       — TRouteDoc / TRouteDocBuilder: builder fluente de rotas + doc
+    Swagger.Server.pas        — TSwaggerServer: serve JSON spec e Swagger UI via Horse
 tests/
   Unit/         — 23 testes unitários (DUnitX) — Infra.UnitTests.dpr
   Integration/  — 4 testes com banco Firebird real — Infra.IntegrationTests.dpr
@@ -63,7 +67,7 @@ git commit -m "chore: atualiza infra"
 Adicione ao `DCC_UnitSearchPath` do seu `.dproj`:
 
 ```
-infra\src\Common;infra\src\Db
+infra\src\Common;infra\src\Db;infra\src\Swagger;infra\modules\swag-doc\Source
 ```
 
 ### 2. Referências explícitas no DPR
@@ -81,7 +85,11 @@ uses
   Db.SqlDialect        in 'infra\src\Db\Db.SqlDialect.pas',
   Db.Adapters.Registry in 'infra\src\Db\Db.Adapters.Registry.pas',
   Db.Adapters.FireDAC  in 'infra\src\Db\Db.Adapters.FireDAC.pas',
-  Db.Constants         in 'infra\src\Db\Db.Constants.pas';
+  Db.Constants         in 'infra\src\Db\Db.Constants.pas',
+  // Swagger (opcional — incluir apenas se o projeto usa TRouteDoc)
+  Swagger.Attributes   in 'infra\src\Swagger\Swagger.Attributes.pas',
+  Swagger.Builder      in 'infra\src\Swagger\Swagger.Builder.pas',
+  Swagger.Server       in 'infra\src\Swagger\Swagger.Server.pas';
 ```
 
 ### 3. Units FireDAC obrigatórias
@@ -127,6 +135,139 @@ E compile o arquivo de recursos com:
 ```bash
 brcc32.exe -fo src\Db\sql\queries.res src\Db\sql\queries.rc
 ```
+
+### 6. Submodule swag-doc
+
+O módulo Swagger depende de [SwagDoc](https://github.com/marcelojaloto/SwagDoc) como nested submodule dentro de `infra/`. Ao clonar o projeto que usa esta infra, inicialize todos os submodules recursivamente:
+
+```bash
+git submodule update --init --recursive
+```
+
+---
+
+## Swagger
+
+O módulo Swagger integra documentação OpenAPI 2.0 (Swagger) diretamente no registro de rotas do Horse. Uma única cadeia fluente define a rota, os parâmetros, o schema de entrada/saída e a documentação — sem nenhum arquivo de configuração separado.
+
+### Fluxo de uso
+
+```pascal
+// 1. Inicializar o doc (antes de registrar as rotas)
+TRouteDoc.Init('Minha API', '1.0.0', 'localhost:9000');
+
+// 2. Registrar rotas — documenta e registra no Horse ao mesmo tempo
+TRouteDoc.Get('/produtos')
+  .Summary('Listar produtos')
+  .Tag('produtos')
+  .ResponseArray<IProdutoResponseDTO>('200', 'Lista de produtos')
+  .Register(
+    procedure(Req: THorseRequest; Res: THorseResponse; Next: TNextProc)
+    begin
+      // handler
+    end);
+
+TRouteDoc.Post('/produtos')
+  .Summary('Criar produto')
+  .Tag('produtos')
+  .Body<IProdutoInsertDTO>('Dados do produto')
+  .Response<IProdutoResponseDTO>('201', 'Produto criado')
+  .Register(handler);
+
+TRouteDoc.Patch('/produtos/:id')
+  .Summary('Atualizar produto')
+  .Tag('produtos')
+  .PathParam('id', 'ID do produto')
+  .Body<IProdutoUpdateDTO>('Campos a atualizar')
+  .NoContent('204', 'Atualizado')
+  .NoContent('404', 'Não encontrado')
+  .Register(handler);
+
+TRouteDoc.Delete('/produtos/:id')
+  .Summary('Excluir produto')
+  .Tag('produtos')
+  .PathParam('id', 'ID do produto')
+  .NoContent('204', 'Excluído')
+  .Register(handler);
+
+// 3. Publicar Swagger UI + JSON (serializa e libera o doc interno)
+TRouteDoc.Serve('/swagger');
+
+// 4. Iniciar o servidor
+THorse.Listen(9000);
+// → http://localhost:9000/swagger      (Swagger UI)
+// → http://localhost:9000/swagger/doc.json  (OpenAPI JSON)
+```
+
+### Métodos do builder
+
+| Método | Descrição |
+|---|---|
+| `.Summary(text)` | Título curto da operação |
+| `.Descr(text)` | Descrição longa |
+| `.Tag(tag)` | Agrupa a rota na UI por tag |
+| `.PathParam(name, desc)` | Parâmetro de path (`:id` → `{id}`) |
+| `.Body<I>(desc)` | Corpo da requisição — gera schema a partir do DTO |
+| `.Response<I>(code, desc)` | Resposta com schema de objeto |
+| `.ResponseArray<I>(code, desc)` | Resposta com schema de array |
+| `.NoContent(code, desc)` | Resposta sem corpo (204, 404, etc.) |
+| `.Register(handler)` | Finaliza: registra no Horse e no doc; libera o builder |
+
+### Schemas automáticos via RTTI
+
+O schema de cada DTO é gerado automaticamente a partir dos métodos `Get*` da **classe de implementação** (não da interface). O tipo de retorno de cada getter determina o tipo JSON:
+
+| Tipo Delphi | Tipo JSON | Format |
+|---|---|---|
+| `string` | `string` | — |
+| `Integer` | `integer` | `int32` |
+| `Int64` | `integer` | `int64` |
+| `Double` | `number` | `double` |
+| `Single` | `number` | `float` |
+| `Currency` | `number` | — |
+| `Boolean` | `boolean` | — |
+| `TDateTime` | `string` | `date-time` |
+| `TGUID` | `string` | `uuid` |
+| `IOptXxx` | tipo base | campo marcado como opcional |
+| `INullXxx` | tipo base | `nullable: true` |
+| `IOptNullXxx` | tipo base | opcional + `nullable: true` |
+
+### Atributo `[SwagProp]`
+
+Adicione `[SwagProp]` nos métodos `Get*` da **classe de implementação** para enriquecer o schema com descrição, exemplo e formato:
+
+```pascal
+// Produto.DTOs.pas
+
+IProdutoResponseDTO = interface(IInterface)
+  ['{...}']
+  function GetId: Integer;
+  function GetNome: string;
+  property Id: Integer read GetId;
+  property Nome: string read GetNome;
+end;
+
+TProdutoResponseDTO = class(TInterfacedObject, IProdutoResponseDTO)
+public
+  [SwagProp('ID do produto', '1')]
+  function GetId: Integer;
+  [SwagProp('Nome do produto', 'Arroz')]
+  function GetNome: string;
+  // ...
+end;
+```
+
+> **Importante:** `[SwagProp]` deve estar na **classe** (`TProdutoResponseDTO`), não na interface (`IProdutoResponseDTO`). O schema é gerado via RTTI da classe concreta — o RTTI de métodos de interface não é gerado pelo compilador por padrão.
+
+Construtor do atributo:
+
+```pascal
+[SwagProp('descrição')]
+[SwagProp('descrição', 'exemplo')]
+[SwagProp('descrição', 'exemplo', 'formato')]  // formato: 'email', 'uri', 'date', etc.
+```
+
+O campo `exemplo` é emitido com o tipo JSON correto: `'1'` vira `1` (number), `'true'` vira `true` (boolean), strings ficam como string.
 
 ---
 
