@@ -217,7 +217,7 @@ begin
           end;
         if Assigned(LDefRequired) then
           for LReqItem in LDefRequired do
-            LRequired.Add(LReqItem.Clone as TJSONValue);
+            LRequired.AddElement(LReqItem.Clone as TJSONValue);
       end;
     end;
   end;
