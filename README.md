@@ -27,7 +27,7 @@ src/
     Db.Adapters.Registry.pas  — TDBRegistry: registro de factories por nome
     Db.Constants.pas          — Constantes de configuração do pool
   Swagger/
-    Swagger.Attributes.pas    — [SwagProp]: atributo de documentação por campo
+    Swagger.Attributes.pas    — [SwagProp], [SwagMin], [SwagMax], [SwagEnum], [SwagPattern]: atributos de schema
     Swagger.Builder.pas       — TRouteDoc / TRouteDocBuilder: builder fluente de rotas + doc
     Swagger.Server.pas        — TSwaggerServer: serve JSON spec e Swagger UI via Horse
   MCP/
@@ -321,34 +321,13 @@ O schema de cada DTO é gerado automaticamente a partir dos métodos `Get*` da *
 
 Os nomes de propriedade são emitidos em **camelCase** automaticamente: o getter `GetCodIbge` gera a chave `codIbge` no JSON e no schema Swagger. Nenhuma configuração extra é necessária.
 
-### Atributo `[SwagProp]`
+### Atributos de schema
 
-Adicione `[SwagProp]` nos métodos `Get*` da **classe de implementação** para enriquecer o schema com descrição, exemplo e formato:
+Aplique nos métodos `Get*` da **classe de implementação** para enriquecer o schema com metadados e restrições. Todos são opcionais e combináveis no mesmo método.
 
-```pascal
-// Produto.DTOs.pas
+> **Importante:** os atributos devem estar na **classe** (`TProdutoInsertDTO`), não na interface. O schema é gerado via RTTI da classe concreta — o RTTI de métodos de interface não é gerado pelo compilador por padrão.
 
-IProdutoResponseDTO = interface(IInterface)
-  ['{...}']
-  function GetId: Integer;
-  function GetNome: string;
-  property Id: Integer read GetId;
-  property Nome: string read GetNome;
-end;
-
-TProdutoResponseDTO = class(TInterfacedObject, IProdutoResponseDTO)
-public
-  [SwagProp('ID do produto', '1')]
-  function GetId: Integer;
-  [SwagProp('Nome do produto', 'Arroz')]
-  function GetNome: string;
-  // ...
-end;
-```
-
-> **Importante:** `[SwagProp]` deve estar na **classe** (`TProdutoResponseDTO`), não na interface (`IProdutoResponseDTO`). O schema é gerado via RTTI da classe concreta — o RTTI de métodos de interface não é gerado pelo compilador por padrão.
-
-Construtor do atributo:
+#### `[SwagProp]` — descrição, exemplo e formato
 
 ```pascal
 [SwagProp('descrição')]
@@ -356,7 +335,73 @@ Construtor do atributo:
 [SwagProp('descrição', 'exemplo', 'formato')]  // formato: 'email', 'uri', 'date', etc.
 ```
 
-O campo `exemplo` é emitido com o tipo JSON correto: `'1'` vira `1` (number), `'true'` vira `true` (boolean), strings ficam como string.
+O campo `exemplo` é emitido com o tipo JSON correto: `'1'` vira `1` (number), `'true'` vira `true` (boolean), strings ficam como string. No MCP, o exemplo é incorporado na `description` da propriedade (`"desc. Ex: valor"`).
+
+#### `[SwagMin]` / `[SwagMax]` — restrições numéricas e de comprimento
+
+O atributo escolhe automaticamente a chave correta com base no tipo do campo:
+
+| Tipo do campo | `[SwagMin(N)]` | `[SwagMax(N)]` |
+|---|---|---|
+| `string` | `"minLength": N` | `"maxLength": N` |
+| `integer`, `number` | `"minimum": N` | `"maximum": N` |
+
+#### `[SwagEnum]` — lista de valores válidos
+
+```pascal
+[SwagEnum('ativo,inativo,suspenso')]  →  "enum": ["ativo", "inativo", "suspenso"]
+```
+
+Valores separados por vírgula; espaços em volta da vírgula são ignorados.
+
+#### `[SwagPattern]` — validação por regex
+
+```pascal
+[SwagPattern('^[A-Z]{2}$')]  →  "pattern": "^[A-Z]{2}$"
+```
+
+#### Exemplo completo
+
+```pascal
+TProdutoInsertDTO = class(TInsertDTOBase, IProdutoInsertDTO)
+public
+  [SwagProp('Nome do produto', 'Arroz')]
+  [SwagMin(1)]
+  [SwagMax(100)]
+  function GetNome: string;
+
+  [SwagProp('Status', 'ativo')]
+  [SwagEnum('ativo,inativo,suspenso')]
+  function GetStatus: string;
+
+  [SwagProp('Código UF', 'SP')]
+  [SwagPattern('^[A-Z]{2}$')]
+  function GetUf: string;
+
+  [SwagProp('Preço', '9.90')]
+  [SwagMin(0)]
+  function GetPreco: Double;
+
+  [SwagProp('Quantidade', '10')]
+  [SwagMin(0)]
+  [SwagMax(9999)]
+  function GetQuantidade: Integer;
+end;
+```
+
+Schema gerado:
+
+```json
+{
+  "nome":       { "type": "string",  "description": "Nome do produto", "minLength": 1, "maxLength": 100 },
+  "status":     { "type": "string",  "description": "Status",          "enum": ["ativo", "inativo", "suspenso"] },
+  "uf":         { "type": "string",  "description": "Código UF",       "pattern": "^[A-Z]{2}$" },
+  "preco":      { "type": "number",  "description": "Preço",           "minimum": 0 },
+  "quantidade": { "type": "integer", "description": "Quantidade",      "minimum": 0, "maximum": 9999 }
+}
+```
+
+No `inputSchema` MCP, o campo `additionalProperties: false` é adicionado automaticamente a todo schema gerado.
 
 ---
 
