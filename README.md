@@ -25,6 +25,8 @@ src/
     Swagger.Attributes.pas    — [SwagProp]: atributo de documentação por campo
     Swagger.Builder.pas       — TRouteDoc / TRouteDocBuilder: builder fluente de rotas + doc
     Swagger.Server.pas        — TSwaggerServer: serve JSON spec e Swagger UI via Horse
+  MCP/
+    MCP.Server.pas            — TMcpServer: expõe rotas do TSwagDoc como tools MCP (HTTP JSON-RPC 2.0)
 tests/
   Unit/         — 23 testes unitários (DUnitX) — Infra.UnitTests.dpr
   Integration/  — 4 testes com banco Firebird real — Infra.IntegrationTests.dpr
@@ -67,7 +69,7 @@ git commit -m "chore: atualiza infra"
 Adicione ao `DCC_UnitSearchPath` do seu `.dproj`:
 
 ```
-infra\src\Common;infra\src\Db;infra\src\Swagger;infra\modules\swag-doc\Source
+infra\src\Common;infra\src\Db;infra\src\Swagger;infra\src\MCP;infra\modules\swag-doc\Source
 ```
 
 ### 2. Referências explícitas no DPR
@@ -89,7 +91,9 @@ uses
   // Swagger (opcional — incluir apenas se o projeto usa TRouteDoc)
   Swagger.Attributes   in 'infra\src\Swagger\Swagger.Attributes.pas',
   Swagger.Builder      in 'infra\src\Swagger\Swagger.Builder.pas',
-  Swagger.Server       in 'infra\src\Swagger\Swagger.Server.pas';
+  Swagger.Server       in 'infra\src\Swagger\Swagger.Server.pas',
+  // MCP (opcional — incluir apenas se o projeto expõe tools MCP)
+  MCP.Server           in 'infra\src\MCP\MCP.Server.pas';
 ```
 
 ### 3. Units FireDAC obrigatórias
@@ -268,6 +272,71 @@ Construtor do atributo:
 ```
 
 O campo `exemplo` é emitido com o tipo JSON correto: `'1'` vira `1` (number), `'true'` vira `true` (boolean), strings ficam como string.
+
+---
+
+## MCP (Model Context Protocol)
+
+O módulo MCP expõe as rotas documentadas no `TSwagDoc` como **tools MCP** sobre HTTP JSON-RPC 2.0. Com uma única chamada, o servidor passa a ser operável por agentes de IA compatíveis com o protocolo MCP.
+
+### Fluxo de uso
+
+```pascal
+// Após registrar as rotas com TRouteDoc e antes de TRouteDoc.Serve:
+TMcpServer.Register(
+  TRouteDoc.CurrentDoc,    // doc com as rotas documentadas
+  '/mcp',                  // endpoint MCP (POST)
+  'http://localhost:9000', // base URL para o agente chamar de volta
+  'Minha API',             // serverInfo.name
+  '1.0.0'                  // serverInfo.version
+);
+
+TRouteDoc.Serve('/swagger');
+THorse.Listen(9000);
+// → POST http://localhost:9000/mcp  (endpoint MCP JSON-RPC 2.0)
+```
+
+### Métodos JSON-RPC suportados
+
+| Método | Descrição |
+|---|---|
+| `initialize` | Handshake — retorna `protocolVersion`, `capabilities` e `serverInfo` |
+| `notifications/initialized` | Notificação do cliente — sem resposta (fire-and-forget) |
+| `tools/list` | Retorna a lista de tools geradas a partir das rotas documentadas |
+| `tools/call` | Executa uma tool: faz HTTP call de volta ao servidor e retorna o resultado |
+
+### Geração automática de tools
+
+Cada rota documentada vira uma tool MCP:
+
+| Rota | Tool gerada |
+|---|---|
+| `GET /produtos` | `list_produto` |
+| `POST /produtos` | `create_produto` |
+| `GET /produtos/{id}` | `get_produto` |
+| `PATCH /produtos/{id}` | `update_produto` |
+| `DELETE /produtos/{id}` | `delete_produto` |
+
+- **Nome** derivado do método HTTP + último segmento do path (sempre no singular)
+- **description** mapeada do `.Summary()` da rota
+- **inputSchema** gerado dos parâmetros de path e do body (via `TSwagDoc`)
+- Exemplos do `[SwagProp]` são incorporados no `description` da propriedade (`"desc. Ex: valor"`)
+
+### Exemplo de resposta do tools/list
+
+```json
+{
+  "name": "create_produto",
+  "description": "Criar produto",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "Nome": { "type": "string", "description": "Nome do produto. Ex: Arroz" }
+    },
+    "required": ["Nome"]
+  }
+}
+```
 
 ---
 
