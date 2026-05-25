@@ -345,7 +345,7 @@ begin
   LJson := TJsonMapper.ToJson<ISerProduto>(LP);
   LObj := ParseJson(LJson);
   try
-    Assert.IsNull(LObj.GetValue('Nome'), 'Undefined field must be omitted');
+    Assert.IsNull(LObj.GetValue('nome'), 'Undefined field must be omitted');
   finally
     LObj.Free;
   end;
@@ -363,8 +363,8 @@ begin
   LJson := TJsonMapper.ToJson<ISerProduto>(LP);
   LObj := ParseJson(LJson);
   try
-    Assert.IsNotNull(LObj.GetValue('Nome'), 'Null field must appear in JSON');
-    Assert.IsTrue(LObj.GetValue('Nome') is TJSONNull,
+    Assert.IsNotNull(LObj.GetValue('nome'), 'Null field must appear in JSON');
+    Assert.IsTrue(LObj.GetValue('nome') is TJSONNull,
       'Null field must be JSON null');
   finally
     LObj.Free;
@@ -383,7 +383,7 @@ begin
   LJson := TJsonMapper.ToJson<ISerProduto>(LP);
   LObj := ParseJson(LJson);
   try
-    Assert.AreEqual('Produto A', (LObj.GetValue('Nome') as TJSONString).Value);
+    Assert.AreEqual('Produto A', (LObj.GetValue('nome') as TJSONString).Value);
   finally
     LObj.Free;
   end;
@@ -401,7 +401,7 @@ begin
   LJson := TJsonMapper.ToJson<ISerProduto>(LP);
   LObj := ParseJson(LJson);
   try
-    Assert.AreEqual(42, (LObj.GetValue('Quantidade') as TJSONNumber).AsInt);
+    Assert.AreEqual(42, (LObj.GetValue('quantidade') as TJSONNumber).AsInt);
   finally
     LObj.Free;
   end;
@@ -419,7 +419,7 @@ begin
   LJson := TJsonMapper.ToJson<ISerProduto>(LP);
   LObj := ParseJson(LJson);
   try
-    Assert.AreEqual(9.99, (LObj.GetValue('Preco') as TJSONNumber)
+    Assert.AreEqual(9.99, (LObj.GetValue('preco') as TJSONNumber)
       .AsDouble, 0.001);
   finally
     LObj.Free;
@@ -438,7 +438,7 @@ begin
   LJson := TJsonMapper.ToJson<ISerProduto>(LP);
   LObj := ParseJson(LJson);
   try
-    Assert.IsTrue(LObj.GetValue('Ativo') is TJSONTrue);
+    Assert.IsTrue(LObj.GetValue('ativo') is TJSONTrue);
   finally
     LObj.Free;
   end;
@@ -456,7 +456,7 @@ begin
   LJson := TJsonMapper.ToJson<ISerProduto>(LP);
   LObj := ParseJson(LJson);
   try
-    Assert.IsTrue(LObj.GetValue('Ativo') is TJSONFalse);
+    Assert.IsTrue(LObj.GetValue('ativo') is TJSONFalse);
   finally
     LObj.Free;
   end;
@@ -474,7 +474,7 @@ begin
   LJson := TJsonMapper.ToJson<ISerProduto>(LP);
   LObj := ParseJson(LJson);
   try
-    Assert.AreEqual(199.90, (LObj.GetValue('PrecoUnit') as TJSONNumber)
+    Assert.AreEqual(199.90, (LObj.GetValue('precoUnit') as TJSONNumber)
       .AsDouble, 0.001);
   finally
     LObj.Free;
@@ -495,8 +495,8 @@ begin
   LJson := TJsonMapper.ToJson<ISerProduto>(LP);
   LObj := ParseJson(LJson);
   try
-    Assert.IsNotNull(LObj.GetValue('DataCadastro'));
-    Assert.IsTrue(LObj.GetValue('DataCadastro') is TJSONString);
+    Assert.IsNotNull(LObj.GetValue('dataCadastro'));
+    Assert.IsTrue(LObj.GetValue('dataCadastro') is TJSONString);
   finally
     LObj.Free;
   end;
@@ -516,10 +516,10 @@ begin
   LJson := TJsonMapper.ToJson<ISerProduto>(LP);
   LObj := ParseJson(LJson);
   try
-    Assert.IsNotNull(LObj.GetValue('ExternalId'));
-    Assert.IsTrue(LObj.GetValue('ExternalId') is TJSONString);
+    Assert.IsNotNull(LObj.GetValue('externalId'));
+    Assert.IsTrue(LObj.GetValue('externalId') is TJSONString);
     Assert.IsTrue(IsEqualGUID(LGuid,
-      StringToGUID((LObj.GetValue('ExternalId') as TJSONString).Value)));
+      StringToGUID((LObj.GetValue('externalId') as TJSONString).Value)));
   finally
     LObj.Free;
   end;
@@ -538,7 +538,7 @@ begin
   LObj := ParseJson(LJson);
   try
     Assert.AreEqual(Int64(9876543210),
-      (LObj.GetValue('CodigoBanco') as TJSONNumber).AsInt64);
+      (LObj.GetValue('codigoBanco') as TJSONNumber).AsInt64);
   finally
     LObj.Free;
   end;
@@ -563,10 +563,10 @@ begin
   LObj := ParseJson(LJson);
   try
     Assert.AreEqual('Fabiano',
-      (LObj.GetValue('NomePessoa') as TJSONString).Value);
-    LCidadeObj := LObj.GetValue('Cidade') as TJSONObject;
+      (LObj.GetValue('nomePessoa') as TJSONString).Value);
+    LCidadeObj := LObj.GetValue('cidade') as TJSONObject;
     Assert.IsNotNull(LCidadeObj);
-    Assert.AreEqual('Cuiab�', (LCidadeObj.GetValue('NomeCidade')
+    Assert.AreEqual('Cuiab�', (LCidadeObj.GetValue('nomeCidade')
       as TJSONString).Value);
   finally
     LObj.Free;
@@ -586,8 +586,8 @@ begin
   LJson := TJsonMapper.ToJson<ISerPessoa>(LPessoa);
   LObj := ParseJson(LJson);
   try
-    Assert.IsNotNull(LObj.GetValue('NomePessoa'));
-    Assert.IsNull(LObj.GetValue('Cidade'), 'Nil interface must be omitted');
+    Assert.IsNotNull(LObj.GetValue('nomePessoa'));
+    Assert.IsNull(LObj.GetValue('cidade'), 'Nil interface must be omitted');
   finally
     LObj.Free;
   end;
@@ -606,7 +606,7 @@ begin
   LJson := TJsonMapper.ToJson<ISerLista>(LLista);
   LObj := ParseJson(LJson);
   try
-    LArr := LObj.GetValue('Tags') as TJSONArray;
+    LArr := LObj.GetValue('tags') as TJSONArray;
     Assert.IsNotNull(LArr);
     Assert.AreEqual(3, LArr.Count);
     Assert.AreEqual('alpha', (LArr.Items[0] as TJSONString).Value);
@@ -636,14 +636,14 @@ begin
   LJson := TJsonMapper.ToJson<ISerLista>(LLista);
   LObj := ParseJson(LJson);
   try
-    LArr := LObj.GetValue('Cidades') as TJSONArray;
+    LArr := LObj.GetValue('cidades') as TJSONArray;
     Assert.IsNotNull(LArr);
     Assert.AreEqual(2, LArr.Count);
     Assert.AreEqual('Cuiab�',
-      ((LArr.Items[0] as TJSONObject).GetValue('NomeCidade')
+      ((LArr.Items[0] as TJSONObject).GetValue('nomeCidade')
       as TJSONString).Value);
     Assert.AreEqual('V�rzea Grande',
-      ((LArr.Items[1] as TJSONObject).GetValue('NomeCidade')
+      ((LArr.Items[1] as TJSONObject).GetValue('nomeCidade')
       as TJSONString).Value);
   finally
     LObj.Free;
@@ -659,7 +659,7 @@ var
 begin
   TJsonMapper.RegisterMapping<ISerProduto, TSerProduto>;
 
-  LJson := '{"Nome":"Produto X","Preco":55.50,"Quantidade":3,"Ativo":true,"Descricao":null}';
+  LJson := '{"nome":"Produto X","preco":55.50,"quantidade":3,"ativo":true,"descricao":null}';
   LP := TJsonMapper.FromJson<ISerProduto>(LJson);
 
   LJson2 := TJsonMapper.ToJson<ISerProduto>(LP);
@@ -667,15 +667,15 @@ begin
   LObj1 := ParseJson(LJson);
   LObj2 := ParseJson(LJson2);
   try
-    Assert.AreEqual((LObj1.GetValue('Nome') as TJSONString).Value,
-      (LObj2.GetValue('Nome') as TJSONString).Value);
-    Assert.AreEqual((LObj1.GetValue('Preco') as TJSONNumber).AsDouble,
-      (LObj2.GetValue('Preco') as TJSONNumber).AsDouble, 0.001);
-    Assert.AreEqual((LObj1.GetValue('Quantidade') as TJSONNumber).AsInt,
-      (LObj2.GetValue('Quantidade') as TJSONNumber).AsInt);
-    Assert.IsTrue(LObj1.GetValue('Ativo') is TJSONTrue);
-    Assert.IsTrue(LObj2.GetValue('Ativo') is TJSONTrue);
-    Assert.IsTrue(LObj2.GetValue('Descricao') is TJSONNull);
+    Assert.AreEqual((LObj1.GetValue('nome') as TJSONString).Value,
+      (LObj2.GetValue('nome') as TJSONString).Value);
+    Assert.AreEqual((LObj1.GetValue('preco') as TJSONNumber).AsDouble,
+      (LObj2.GetValue('preco') as TJSONNumber).AsDouble, 0.001);
+    Assert.AreEqual((LObj1.GetValue('quantidade') as TJSONNumber).AsInt,
+      (LObj2.GetValue('quantidade') as TJSONNumber).AsInt);
+    Assert.IsTrue(LObj1.GetValue('ativo') is TJSONTrue);
+    Assert.IsTrue(LObj2.GetValue('ativo') is TJSONTrue);
+    Assert.IsTrue(LObj2.GetValue('descricao') is TJSONNull);
   finally
     LObj1.Free;
     LObj2.Free;
