@@ -13,6 +13,8 @@ uses
   DUnitX.TestFramework,
   Common.JsonMapper in '..\..\src\Common\Common.JsonMapper.pas',
   Common.Helpers in '..\..\src\Common\Common.Helpers.pas',
+  Common.DTO.Base in '..\..\src\Common\Common.DTO.Base.pas',
+  Swagger.Attributes in '..\..\src\Swagger\Swagger.Attributes.pas',
   Common.HelpersTests in 'Common.HelpersTests.pas',
   Common.JsonMapperTests in 'Common.JsonMapperTests.pas',
   Common.JsonResolverTests in 'Common.JsonResolverTests.pas',
@@ -20,7 +22,8 @@ uses
   ClockCacheTests in 'ClockCacheTests.pas',
   OptionalsTests in 'OptionalsTests.pas',
   Db.PoolTests in 'Db.PoolTests.pas',
-  Db.SqlLoaderTests in 'Db.SqlLoaderTests.pas';
+  Db.SqlLoaderTests in 'Db.SqlLoaderTests.pas',
+  Swagger.SchemaTests in 'Swagger.SchemaTests.pas';
 
 var
   runner: ITestRunner;
