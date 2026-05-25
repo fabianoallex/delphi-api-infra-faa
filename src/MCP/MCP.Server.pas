@@ -128,8 +128,7 @@ begin
   for S in LParts do
     if not S.StartsWith('{') then
       LResource := S.Replace('-', '_');
-  // Simplify plural to singular when route targets a specific item
-  if LHasId and LResource.EndsWith('s') then
+  if LResource.EndsWith('s') then
     LResource := LResource.Substring(0, LResource.Length - 1);
   if      SameText(AMethod, 'GET')    and not LHasId then Result := 'list_'   + LResource
   else if SameText(AMethod, 'GET')                   then Result := 'get_'    + LResource
@@ -162,6 +161,10 @@ var
   LPair: TJSONPair;
   LReqItem: TJSONValue;
   LPropObj: TJSONObject;
+  LPropClone: TJSONObject;
+  LExamplePair: TJSONPair;
+  LDescPair: TJSONPair;
+  LMergedDesc: string;
 begin
   LProps    := TJSONObject.Create;
   LRequired := TJSONArray.Create;
@@ -192,8 +195,26 @@ begin
         LDefRequired := LBodyDef.GetValue('required')   as TJSONArray;
         if Assigned(LDefProps) then
           for LPair in LDefProps do
-            LProps.AddPair(LPair.JsonString.Value,
-              LPair.JsonValue.Clone as TJSONValue);
+          begin
+            LPropClone   := LPair.JsonValue.Clone as TJSONObject;
+            LExamplePair := LPropClone.RemovePair('example');
+            if Assigned(LExamplePair) then
+            try
+              LDescPair := LPropClone.RemovePair('description');
+              if Assigned(LDescPair) then
+              try
+                LMergedDesc := LDescPair.JsonValue.Value + '. Ex: ' + LExamplePair.JsonValue.Value;
+              finally
+                LDescPair.Free;
+              end
+              else
+                LMergedDesc := 'Ex: ' + LExamplePair.JsonValue.Value;
+              LPropClone.AddPair('description', LMergedDesc);
+            finally
+              LExamplePair.Free;
+            end;
+            LProps.AddPair(LPair.JsonString.Value, LPropClone);
+          end;
         if Assigned(LDefRequired) then
           for LReqItem in LDefRequired do
             LRequired.Add(LReqItem.Clone as TJSONValue);
