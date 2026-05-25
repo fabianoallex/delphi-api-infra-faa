@@ -190,4 +190,7 @@ begin
   Assert.IsTrue(LHint.Contains('nome'), 'Default deve aparecer no hint');
 end;
 
+initialization
+  TDUnitX.RegisterTestFixture(TOrderByTests);
+
 end.

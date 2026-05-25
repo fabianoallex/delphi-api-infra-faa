@@ -203,4 +203,7 @@ begin
   end;
 end;
 
+initialization
+  TDUnitX.RegisterTestFixture(TMcpUtilsTests);
+
 end.

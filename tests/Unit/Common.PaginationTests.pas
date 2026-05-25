@@ -211,4 +211,7 @@ begin
   Assert.AreEqual(LIMIT_DEFAULT, P.Limit);
 end;
 
+initialization
+  TDUnitX.RegisterTestFixture(TPaginationTests);
+
 end.
