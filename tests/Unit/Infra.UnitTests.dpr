@@ -14,6 +14,7 @@ uses
   Common.JsonMapper in '..\..\src\Common\Common.JsonMapper.pas',
   Common.Helpers in '..\..\src\Common\Common.Helpers.pas',
   Common.HelpersTests in 'Common.HelpersTests.pas',
+  Common.JsonMapperTests in 'Common.JsonMapperTests.pas',
   Common.JsonResolverTests in 'Common.JsonResolverTests.pas',
   Common.JsonSerializerTests in 'Common.JsonSerializerTests.pas',
   ClockCacheTests in 'ClockCacheTests.pas',
