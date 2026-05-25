@@ -3,6 +3,7 @@ unit Swagger.Builder;
 interface
 
 uses
+  System.Classes,
   System.Generics.Collections,
   System.JSON,
   System.Rtti,
@@ -33,8 +34,11 @@ type
   TRouteDoc = class
   private
     class var FDoc: TSwagDoc;
+    class var FMcpExcluded: TStringList;
     class procedure FindOrCreatePath(const AUri: string; out APath: TSwagPath);
   public
+    class destructor Destroy;
+
     class procedure Init(const ATitle, AVersion, AHost: string;
       const ABasePath: string = '/';
       ASchemes: TSwagTransferProtocolSchemes = [tpsHttp]);
@@ -45,6 +49,12 @@ type
     /// registrar integrações que precisam ler o doc (ex: TMcpServer.Register).
     /// </summary>
     class function CurrentDoc: TSwagDoc;
+
+    /// <summary>
+    /// Lista de chaves "METHOD:PATH" de rotas marcadas com .NoMcp().
+    /// Passar para TMcpServer.Register como AExcluded para omiti-las das tools.
+    /// </summary>
+    class function McpExcluded: TStringList;
 
     class function Get(const AUri: string): TRouteDocBuilder;
     class function Post(const AUri: string): TRouteDocBuilder;
@@ -84,6 +94,7 @@ type
     FBodySchemaRef: string;
     FBodyDesc: string;
     FResponses: TList<TResponseEntry>;
+    FNoMcp: Boolean;
 
     class function NormalizeUri(const AUri: string): string; static;
     class function SchemaNameFromTypeInfo(ATypeInfo: PTypeInfo): string; static;
@@ -111,6 +122,12 @@ type
     function NoContent(
       const ACode: string = '204';
       const ADesc: string = 'No Content'): TRouteDocBuilder;
+
+    /// <summary>
+    /// Exclui esta rota da geração de tools MCP. A rota continua registrada
+    /// no Horse e documentada no Swagger — apenas não vira tool MCP.
+    /// </summary>
+    function NoMcp: TRouteDocBuilder;
 
     /// <summary>
     /// Finaliza o builder: adiciona a operação ao Swagger doc e registra a
@@ -442,6 +459,12 @@ begin
   Result := Self;
 end;
 
+function TRouteDocBuilder.NoMcp: TRouteDocBuilder;
+begin
+  FNoMcp := True;
+  Result := Self;
+end;
+
 procedure TRouteDocBuilder.Register(const AHandler: THorseCallback);
 var
   LPath: TSwagPath;
@@ -517,6 +540,19 @@ begin
       end;
 
       LPath.Operations.Add(LOp);
+
+      if FNoMcp then
+      begin
+        if not Assigned(TRouteDoc.FMcpExcluded) then
+          TRouteDoc.FMcpExcluded := TStringList.Create;
+        case FOperation of
+          ohvGet:    TRouteDoc.FMcpExcluded.Add('GET:'    + NormalizeUri(FUri));
+          ohvPost:   TRouteDoc.FMcpExcluded.Add('POST:'   + NormalizeUri(FUri));
+          ohvPut:    TRouteDoc.FMcpExcluded.Add('PUT:'    + NormalizeUri(FUri));
+          ohvPatch:  TRouteDoc.FMcpExcluded.Add('PATCH:'  + NormalizeUri(FUri));
+          ohvDelete: TRouteDoc.FMcpExcluded.Add('DELETE:' + NormalizeUri(FUri));
+        end;
+      end;
     end;
 
     // --- Register Horse route ---
@@ -536,6 +572,19 @@ end;
 // ---------------------------------------------------------------------------
 // TRouteDoc
 // ---------------------------------------------------------------------------
+
+class destructor TRouteDoc.Destroy;
+begin
+  FreeAndNil(FDoc);
+  FreeAndNil(FMcpExcluded);
+end;
+
+class function TRouteDoc.McpExcluded: TStringList;
+begin
+  if not Assigned(FMcpExcluded) then
+    FMcpExcluded := TStringList.Create;
+  Result := FMcpExcluded;
+end;
 
 class procedure TRouteDoc.FindOrCreatePath(const AUri: string;
   out APath: TSwagPath);
@@ -559,6 +608,7 @@ class procedure TRouteDoc.Init(const ATitle, AVersion, AHost: string;
   const ABasePath: string; ASchemes: TSwagTransferProtocolSchemes);
 begin
   FreeAndNil(FDoc);
+  FreeAndNil(FMcpExcluded);
   FDoc := TSwagDoc.Create;
   FDoc.Info.Title   := ATitle;
   FDoc.Info.Version := AVersion;

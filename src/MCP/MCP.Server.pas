@@ -16,6 +16,7 @@ unit MCP.Server;
 interface
 
 uses
+  System.Classes,
   System.SysUtils,
   System.Generics.Collections,
   System.JSON,
@@ -63,12 +64,15 @@ type
     /// <summary>
     /// Lê ADoc, constrói a lista de tools e registra POST AEndpoint no Horse.
     /// Chamar antes de TRouteDoc.Serve — o doc é lido mas não é liberado aqui.
+    /// AExcluded: lista opcional de chaves "METHOD:PATH" a omitir das tools
+    /// (passar TRouteDoc.McpExcluded para respeitar as chamadas .NoMcp()).
     /// </summary>
     class procedure Register(ADoc: TSwagDoc;
-      const AEndpoint: string    = '/mcp';
-      const ABaseUrl: string     = 'http://localhost:9000';
-      const AServerName: string  = 'api';
-      const AServerVersion: string = '1.0.0');
+      const AEndpoint: string      = '/mcp';
+      const ABaseUrl: string       = 'http://localhost:9000';
+      const AServerName: string    = 'api';
+      const AServerVersion: string = '1.0.0';
+      AExcluded: TStrings          = nil);
   end;
 
 implementation
@@ -460,7 +464,8 @@ end;
 { TMcpServer — public }
 
 class procedure TMcpServer.Register(ADoc: TSwagDoc;
-  const AEndpoint, ABaseUrl, AServerName, AServerVersion: string);
+  const AEndpoint, ABaseUrl, AServerName, AServerVersion: string;
+  AExcluded: TStrings);
 var
   LPath: TSwagPath;
   LOp: TSwagPathOperation;
@@ -478,6 +483,10 @@ begin
     begin
       LMethod := MethodStr(LOp.Operation);
       if LMethod.IsEmpty then Continue;
+
+      if Assigned(AExcluded) and
+         (AExcluded.IndexOf(LMethod + ':' + LPath.Uri) >= 0) then
+        Continue;
 
       LTool             := TTool.Create;
       LTool.Name        := DeriveName(LMethod, LPath.Uri);
