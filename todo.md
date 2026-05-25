@@ -89,8 +89,17 @@ pedido_list     pedido_create     pedido_get
 
 ---
 
+### 8. Teste de conformação de DTOs
+
+**Arquivo:** `tests/Unit/` — novo fixture DUnitX  
+**Objetivo:** Garantir que todo DTO que herda de `IDTOBase` tem seu mapeamento registrado no `TJsonMapper`, evitando falhas silenciosas em runtime.  
+**Abordagem:** Via RTTI, descobrir todas as classes descendentes de `TDTOBase` e, para cada uma, verificar que `TJsonMapper.FindImplClass(TypeInfo(I))` retorna non-nil. Como o `class constructor` dispara ao referenciar a classe, basta incluir os units dos DTOs no projeto de testes.
+
+---
+
 ## Concluído
 
+- [x] `Common.DTO.Base.pas` — hierarquia de interfaces/classes base para DTOs
 - [x] Nomes de tools singularizados (`create_produto`, `list_produto`)
 - [x] Campo `example` incorporado no `description` da propriedade
 - [x] `AddElement` para compatibilidade com versões anteriores do Delphi

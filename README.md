@@ -11,6 +11,7 @@ src/
   Common/
     Common.Optionals.pas      — IOptXxx, INullXxx, IOptNullXxx (9 tipos base)
     Common.JsonMapper.pas     — TJsonMapper: FromJson<I> / ToJson<I>
+    Common.DTO.Base.pas       — IDTOBase e hierarquia de interfaces/classes base para DTOs
     Common.Helpers.pas        — Helpers de Variant e TParams para Optionals
     Common.ClockCache.pas     — Cache flyweight thread-safe dos Optional values
     Common.SystemContext.pas  — TClock e TSleep injetáveis (testabilidade)
@@ -148,6 +149,79 @@ O módulo Swagger depende de [SwagDoc](https://github.com/marcelojaloto/SwagDoc)
 
 ```bash
 git submodule update --init --recursive
+```
+
+---
+
+## DTO Base
+
+O módulo `Common.DTO.Base` define a hierarquia de interfaces e classes base para todos os DTOs da aplicação. Fornece tipagem semântica, suporte a paginação e uma convenção de auto-registro no `TJsonMapper`.
+
+### Hierarquia
+
+```
+IDTOBase
+├── IResponseDTOBase
+│   └── IResponsePaginationDTOBase   — resposta paginada (Page, Limit, Total: Integer)
+├── IInsertDTOBase
+├── IUpdateDTOBase
+├── IDeleteDTOBase
+└── IFindPaginationDTOBase           — consulta paginada (Page, Limit: IOptInteger;
+                                        OrderBy, Search: IOptString)
+```
+
+As interfaces de marcador (`IResponseDTOBase`, `IInsertDTOBase`, etc.) não adicionam métodos — definem a intenção semântica do DTO e habilitam testes de conformação por RTTI.
+
+### Convenção de uso
+
+```pascal
+// Interface herda o marcador semântico correto
+IProdutoResponseDTO = interface(IResponseDTOBase)
+  ['{...}']
+  function GetId: Integer;
+  function GetNome: string;
+  property Id: Integer read GetId;
+  property Nome: string read GetNome;
+end;
+
+// Classe herda a classe base correspondente e registra o mapeamento
+TProdutoResponseDTO = class(TResponseDTOBase, IProdutoResponseDTO)
+public
+  class constructor Create;  // auto-registro no TJsonMapper
+  [SwagProp('ID do produto', '1')]
+  function GetId: Integer;
+  [SwagProp('Nome do produto', 'Arroz')]
+  function GetNome: string;
+end;
+
+class constructor TProdutoResponseDTO.Create;
+begin
+  TJsonMapper.RegisterMapping<IProdutoResponseDTO, TProdutoResponseDTO>;
+end;
+```
+
+### DTO com paginação
+
+```pascal
+// Find — parâmetros de consulta (todos opcionais)
+IProdutoFindDTO = interface(IFindPaginationDTOBase)
+  ['{...}']
+  function GetNome: IOptString;
+  property Nome: IOptString read GetNome;
+end;
+
+TProdutoFindDTO = class(TFindPaginationDTOBase, IProdutoFindDTO)
+public
+  class constructor Create;
+  function GetNome: IOptString;
+end;
+
+// Response paginado — metadados + itens específicos do domínio
+IProdutoListResponseDTO = interface(IResponsePaginationDTOBase)
+  ['{...}']
+  // Page, Limit, Total já estão na interface base
+  // Adicionar aqui os itens: ex. GetItems: TArray<IProdutoResponseDTO>
+end;
 ```
 
 ---
