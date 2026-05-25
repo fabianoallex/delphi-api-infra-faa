@@ -10,11 +10,13 @@ O acesso a banco de dados é agnóstico: a camada de abstração (`Db.Interfaces
 src/
   Common/
     Common.Optionals.pas      — IOptXxx, INullXxx, IOptNullXxx (9 tipos base)
-    Common.JsonMapper.pas     — TJsonMapper: FromJson<I> / ToJson<I>
+    Common.JsonMapper.pas     — TJsonMapper: FromJson<I> / ToJson<I> (saída camelCase)
     Common.DTO.Base.pas       — IDTOBase e hierarquia de interfaces/classes base para DTOs
     Common.Helpers.pas        — Helpers de Variant e TParams para Optionals
     Common.ClockCache.pas     — Cache flyweight thread-safe dos Optional values
     Common.SystemContext.pas  — TClock e TSleep injetáveis (testabilidade)
+    Common.OrderBy.pas        — TOrderBySpec: ordenação segura com whitelist, tiebreaker e DocHint
+    Common.Pagination.pas     — TPageMeta, TPageParams: paginação padronizada com WrapJson
   Db/
     Db.Interfaces.pas         — IDBConnection, IDBConnectionPool, ITransaction, IQuery, IMigrationDialect
     Db.Connection.Pool.pas    — TConnectionPool thread-safe com timeout e inatividade
@@ -30,9 +32,10 @@ src/
     Swagger.Server.pas        — TSwaggerServer: serve JSON spec e Swagger UI via Horse
   MCP/
     MCP.Server.pas            — TMcpServer: expõe rotas do TSwagDoc como tools MCP (HTTP JSON-RPC 2.0)
+    MCP.Utils.pas             — McpDeriveName, McpMatchesTags (utilitários sem dependência Horse)
 tests/
-  Unit/         — 23 testes unitários (DUnitX) — Infra.UnitTests.dpr
-  Integration/  — 4 testes com banco Firebird real — Infra.IntegrationTests.dpr
+  Unit/         — testes unitários (DUnitX) — Infra.UnitTests.dpr
+  Integration/  — testes com banco Firebird real — Infra.IntegrationTests.dpr
 ```
 
 ---
@@ -285,12 +288,16 @@ THorse.Listen(9000);
 |---|---|
 | `.Summary(text)` | Título curto da operação |
 | `.Descr(text)` | Descrição longa |
-| `.Tag(tag)` | Agrupa a rota na UI por tag |
-| `.PathParam(name, desc)` | Parâmetro de path (`:id` → `{id}`) |
+| `.Tag(tag)` | Agrupa a rota na UI por tag (pode ser chamado N vezes) |
+| `.PathParam(name, desc, type)` | Parâmetro de path (`:id` → `{id}`); `type`: `qptString` (padrão) ou `qptInteger` |
+| `.QueryParam(name, desc, type)` | Parâmetro de query string; `type`: `qptString` (padrão) ou `qptInteger` |
 | `.Body<I>(desc)` | Corpo da requisição — gera schema a partir do DTO |
 | `.Response<I>(code, desc)` | Resposta com schema de objeto |
 | `.ResponseArray<I>(code, desc)` | Resposta com schema de array |
+| `.ResponsePaged<I>(code, desc)` | Resposta com envelope de paginação (`page`, `limit`, `total`, `items`) |
 | `.NoContent(code, desc)` | Resposta sem corpo (204, 404, etc.) |
+| `.ToolName(name)` | Nome explícito da tool MCP gerada — sobrescreve a derivação automática (útil para plurais irregulares) |
+| `.NoMcp` | Exclui a rota das tools MCP; continua registrada no Horse e documentada no Swagger |
 | `.Register(handler)` | Finaliza: registra no Horse e no doc; libera o builder |
 
 ### Schemas automáticos via RTTI
@@ -311,6 +318,8 @@ O schema de cada DTO é gerado automaticamente a partir dos métodos `Get*` da *
 | `IOptXxx` | tipo base | campo marcado como opcional |
 | `INullXxx` | tipo base | `nullable: true` |
 | `IOptNullXxx` | tipo base | opcional + `nullable: true` |
+
+Os nomes de propriedade são emitidos em **camelCase** automaticamente: o getter `GetCodIbge` gera a chave `codIbge` no JSON e no schema Swagger. Nenhuma configuração extra é necessária.
 
 ### Atributo `[SwagProp]`
 
@@ -393,10 +402,58 @@ Cada rota documentada vira uma tool MCP:
 | `PATCH /produtos/{id}` | `update_produto` |
 | `DELETE /produtos/{id}` | `delete_produto` |
 
-- **Nome** derivado do método HTTP + último segmento do path (sempre no singular)
+- **Nome** derivado do método HTTP + último segmento do path, no singular (strip do `s` final por palavra)
 - **description** mapeada do `.Summary()` da rota
 - **inputSchema** gerado dos parâmetros de path e do body (via `TSwagDoc`)
 - Exemplos do `[SwagProp]` são incorporados no `description` da propriedade (`"desc. Ex: valor"`)
+- Propriedades do schema em **camelCase** (segue a serialização JSON)
+
+#### Override de nome com `.ToolName()`
+
+A derivação automática falha para plurais irregulares ou compostos (`operações`, `perfis`, `animais`). Use `.ToolName()` para definir o nome explicitamente:
+
+```pascal
+TRouteDoc.Get('/operacoes')
+  .Summary('Listar operações')
+  .Tag('operacoes')
+  .ToolName('list_operacao')   // ← sobrescreve a derivação automática
+  .ResponseArray<IOperacaoDTO>('200', 'OK')
+  .Register(handler);
+```
+
+O nome informado é gravado no campo `operationId` do Swagger (campo padrão OpenAPI), aparecendo também na UI do Swagger.
+
+### Múltiplos endpoints por domínio
+
+`TMcpServer.Register` pode ser chamado várias vezes para expor subconjuntos de tools filtrados por tag:
+
+```pascal
+// Endpoint geral — todas as tools (debug / agente generalista)
+TMcpServer.Register(TRouteDoc.CurrentDoc, '/mcp', 'http://localhost:9000', 'API', '1.0.0');
+
+// Endpoints por domínio — filtrados pela tag registrada com .Tag()
+var LTags := TStringList.Create;
+try
+  LTags.Add('produtos');
+  TMcpServer.Register(TRouteDoc.CurrentDoc, '/mcp/produtos',
+    'http://localhost:9000', 'API', '1.0.0', nil, LTags);
+
+  LTags.Clear;
+  LTags.Add('cidades');
+  TMcpServer.Register(TRouteDoc.CurrentDoc, '/mcp/cidades',
+    'http://localhost:9000', 'API', '1.0.0', nil, LTags);
+finally
+  LTags.Free;
+end;
+
+TRouteDoc.Serve('/swagger');
+THorse.Listen(9000);
+// → POST /mcp          todas as tools
+// → POST /mcp/produtos tools com tag "produtos"
+// → POST /mcp/cidades  tools com tag "cidades"
+```
+
+Cada endpoint mantém sua própria lista de tools isolada. O parâmetro `AExcluded` (penúltimo) aceita a lista de `TRouteDoc.McpExcluded` para omitir rotas marcadas com `.NoMcp`.
 
 ### Exemplo de resposta do tools/list
 
@@ -407,9 +464,9 @@ Cada rota documentada vira uma tool MCP:
   "inputSchema": {
     "type": "object",
     "properties": {
-      "Nome": { "type": "string", "description": "Nome do produto. Ex: Arroz" }
+      "nome": { "type": "string", "description": "Nome do produto. Ex: Arroz" }
     },
-    "required": ["Nome"]
+    "required": ["nome"]
   }
 }
 ```
