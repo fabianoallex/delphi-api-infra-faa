@@ -245,7 +245,7 @@ end;
 
 function BuildPropertyJson(ARttiType: TRttiType;
   out AIsRequired: Boolean; out ANullable: Boolean;
-  AAttr: SwagProp): TJSONObject;
+  AAttr: SwagProp; AMin: SwagMin; AMax: SwagMax): TJSONObject;
 var
   LBase, LJsonType, LFormat: string;
   LIsOpt, LIsNull: Boolean;
@@ -287,6 +287,17 @@ begin
       else
         Result.AddPair('example', AAttr.Example);
     end;
+  end;
+
+  if Assigned(AMin) then
+  begin
+    if LJsonType = 'string' then Result.AddPair('minLength', TJSONNumber.Create(AMin.Value))
+                            else Result.AddPair('minimum',   TJSONNumber.Create(AMin.Value));
+  end;
+  if Assigned(AMax) then
+  begin
+    if LJsonType = 'string' then Result.AddPair('maxLength', TJSONNumber.Create(AMax.Value))
+                            else Result.AddPair('maximum',   TJSONNumber.Create(AMax.Value));
   end;
 end;
 
@@ -343,16 +354,18 @@ begin
         if LFieldName.IsEmpty then Continue;
 
         LSwagProp := nil;
+        var LSwagMin: SwagMin := nil;
+        var LSwagMax: SwagMax := nil;
         for LAttr in LMethod.GetAttributes do
-          if LAttr is SwagProp then
-          begin
-            LSwagProp := SwagProp(LAttr);
-            Break;
-          end;
+        begin
+          if LAttr is SwagProp then LSwagProp := SwagProp(LAttr)
+          else if LAttr is SwagMin then LSwagMin := SwagMin(LAttr)
+          else if LAttr is SwagMax then LSwagMax := SwagMax(LAttr);
+        end;
 
         LIsRequired := True;
         LNullable   := False;
-        LPropJson   := BuildPropertyJson(LMethod.ReturnType, LIsRequired, LNullable, LSwagProp);
+        LPropJson   := BuildPropertyJson(LMethod.ReturnType, LIsRequired, LNullable, LSwagProp, LSwagMin, LSwagMax);
 
         if LNullable then
           LPropJson.AddPair('nullable', TJSONBool.Create(True));

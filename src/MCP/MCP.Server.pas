@@ -238,6 +238,7 @@ begin
     Result.AddPair('required', LRequired)
   else
     LRequired.Free;
+  Result.AddPair('additionalProperties', TJSONBool.Create(False));
 end;
 
 { TMcpServer — JSON-RPC helpers }

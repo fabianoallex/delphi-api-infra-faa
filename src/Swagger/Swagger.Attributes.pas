@@ -4,8 +4,8 @@ interface
 
 type
   /// <summary>
-  /// Aplicar nos métodos Get* da interface do DTO para enriquecer a documentação
-  /// Swagger com descrição, exemplo de valor e formato opcional.
+  /// Enriquece a documentação Swagger com descrição, exemplo e formato opcional.
+  /// Aplicar nos métodos Get* da classe de implementação do DTO.
   /// </summary>
   SwagProp = class(TCustomAttribute)
   private
@@ -19,6 +19,34 @@ type
     property Description: string read FDescription;
     property Example: string read FExample;
     property Format: string read FFormat;
+  end;
+
+  /// <summary>
+  /// Define o valor mínimo do campo no schema JSON.
+  /// Strings  → "minLength": N
+  /// Números  → "minimum": N
+  /// Aplicar junto com [SwagProp] no mesmo método Get*.
+  /// </summary>
+  SwagMin = class(TCustomAttribute)
+  private
+    FValue: Integer;
+  public
+    constructor Create(AValue: Integer);
+    property Value: Integer read FValue;
+  end;
+
+  /// <summary>
+  /// Define o valor máximo do campo no schema JSON.
+  /// Strings  → "maxLength": N
+  /// Números  → "maximum": N
+  /// Aplicar junto com [SwagProp] no mesmo método Get*.
+  /// </summary>
+  SwagMax = class(TCustomAttribute)
+  private
+    FValue: Integer;
+  public
+    constructor Create(AValue: Integer);
+    property Value: Integer read FValue;
   end;
 
 implementation
@@ -42,6 +70,18 @@ begin
   FDescription := ADescription;
   FExample := AExample;
   FFormat := AFormat;
+end;
+
+constructor SwagMin.Create(AValue: Integer);
+begin
+  inherited Create;
+  FValue := AValue;
+end;
+
+constructor SwagMax.Create(AValue: Integer);
+begin
+  inherited Create;
+  FValue := AValue;
 end;
 
 end.
