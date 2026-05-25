@@ -20,6 +20,8 @@ uses
   Swagger.Server;
 
 type
+  TQueryParamType = (qptString, qptInteger);
+
   TRouteDocBuilder = class;
 
   /// <summary>
@@ -87,7 +89,7 @@ type
       TQueryParamEntry = record
         Name:      string;
         Desc:      string;
-        SwagType:  TSwagPathTypeOperationParameterType;
+        ParamType: TQueryParamType;
       end;
 
   private
@@ -120,7 +122,7 @@ type
       const ADesc: string = ''): TRouteDocBuilder;
     function QueryParam(const AName: string;
       const ADesc: string = '';
-      AType: TSwagPathTypeOperationParameterType = stpString): TRouteDocBuilder;
+      AType: TQueryParamType = qptString): TRouteDocBuilder;
 
     function Body<I: IInterface>(
       const ADesc: string = ''): TRouteDocBuilder;
@@ -480,13 +482,13 @@ begin
 end;
 
 function TRouteDocBuilder.QueryParam(const AName: string;
-  const ADesc: string; AType: TSwagPathTypeOperationParameterType): TRouteDocBuilder;
+  const ADesc: string; AType: TQueryParamType): TRouteDocBuilder;
 var
   LEntry: TQueryParamEntry;
 begin
-  LEntry.Name     := AName;
-  LEntry.Desc     := ADesc;
-  LEntry.SwagType := AType;
+  LEntry.Name      := AName;
+  LEntry.Desc      := ADesc;
+  LEntry.ParamType := AType;
   FQueryParams.Add(LEntry);
   Result := Self;
 end;
@@ -608,7 +610,8 @@ begin
         LParam := TSwagRequestParameter.Create;
         LParam.Name          := LQPair.Name;
         LParam.InLocation    := rpiQuery;
-        LParam.TypeParameter := LQPair.SwagType;
+        if LQPair.ParamType = qptInteger then LParam.TypeParameter := stpInteger
+                                        else LParam.TypeParameter := stpString;
         LParam.Description   := LQPair.Desc;
         LParam.Required      := False;
         LOp.Parameters.Add(LParam);
