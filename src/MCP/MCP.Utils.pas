@@ -28,7 +28,7 @@ implementation
 function McpDeriveName(const AMethod, APath: string): string;
 var
   LParts: TArray<string>;
-  LResource, S: string;
+  LResource, S, LWord: string;
   LHasId: Boolean;
 begin
   LHasId    := APath.Contains('{');
@@ -36,9 +36,19 @@ begin
   LResource := '';
   for S in LParts do
     if not S.StartsWith('{') then
-      LResource := S.Replace('-', '_');
-  if LResource.EndsWith('s') then
-    LResource := LResource.Substring(0, LResource.Length - 1);
+    begin
+      // desplurifica cada palavra separada por hífen antes de unir com '_'
+      // ex: "meus-recursos" → ["meus","recursos"] → ["meu","recurso"] → "meu_recurso"
+      LResource := '';
+      for LWord in S.Split(['-']) do
+      begin
+        var LSingular := LWord;
+        if LSingular.EndsWith('s') then
+          LSingular := LSingular.Substring(0, LSingular.Length - 1);
+        if LResource.IsEmpty then LResource := LSingular
+        else                      LResource := LResource + '_' + LSingular;
+      end;
+    end;
   if      SameText(AMethod, 'GET')    and not LHasId then Result := 'list_'   + LResource
   else if SameText(AMethod, 'GET')                   then Result := 'get_'    + LResource
   else if SameText(AMethod, 'POST')                  then Result := 'create_' + LResource
