@@ -98,7 +98,7 @@ type
     FSummary: string;
     FDescription: string;
     FTags: TList<string>;
-    FPathParams:  TList<TPair<string, string>>;
+    FPathParams:  TList<TQueryParamEntry>;
     FQueryParams: TList<TQueryParamEntry>;
     FBodySchemaRef: string;
     FBodyDesc: string;
@@ -119,7 +119,8 @@ type
     function Descr(const AText: string): TRouteDocBuilder;
     function Tag(const ATag: string): TRouteDocBuilder;
     function PathParam(const AName: string;
-      const ADesc: string = ''): TRouteDocBuilder;
+      const ADesc: string = '';
+      AType: TQueryParamType = qptString): TRouteDocBuilder;
     function QueryParam(const AName: string;
       const ADesc: string = '';
       AType: TQueryParamType = qptString): TRouteDocBuilder;
@@ -163,6 +164,12 @@ uses
 // ---------------------------------------------------------------------------
 // Schema generation helpers (standalone, implementation-only)
 // ---------------------------------------------------------------------------
+
+function LowerFirst(const S: string): string;
+begin
+  if S.IsEmpty then Exit('');
+  Result := LowerCase(Copy(S, 1, 1)) + Copy(S, 2, MaxInt);
+end;
 
 function ParseOptionalName(const AName: string;
   out ABase: string; out AIsOpt, AIsNull: Boolean): Boolean;
@@ -323,7 +330,7 @@ begin
         if LMethod.ReturnType = nil                   then Continue;
         if not LMethod.Name.StartsWith('Get', True)   then Continue;
 
-        LFieldName := LMethod.Name.Substring(3);
+        LFieldName := LowerFirst(LMethod.Name.Substring(3));
         if LFieldName.IsEmpty then Continue;
 
         LSwagProp := nil;
@@ -442,7 +449,7 @@ begin
   FUri       := AUri;
   FOperation := AOp;
   FTags       := TList<string>.Create;
-  FPathParams  := TList<TPair<string, string>>.Create;
+  FPathParams  := TList<TQueryParamEntry>.Create;
   FQueryParams := TList<TQueryParamEntry>.Create;
   FResponses   := TList<TResponseEntry>.Create;
 end;
@@ -475,9 +482,14 @@ begin
 end;
 
 function TRouteDocBuilder.PathParam(const AName: string;
-  const ADesc: string): TRouteDocBuilder;
+  const ADesc: string; AType: TQueryParamType): TRouteDocBuilder;
+var
+  LEntry: TQueryParamEntry;
 begin
-  FPathParams.Add(TPair<string, string>.Create(AName, ADesc));
+  LEntry.Name      := AName;
+  LEntry.Desc      := ADesc;
+  LEntry.ParamType := AType;
+  FPathParams.Add(LEntry);
   Result := Self;
 end;
 
@@ -571,7 +583,7 @@ var
   LPath: TSwagPath;
   LOp: TSwagPathOperation;
   LParam: TSwagRequestParameter;
-  LPair: TPair<string, string>;
+  LPair: TQueryParamEntry;
   LQPair: TQueryParamEntry;
   LResp: TSwagResponse;
   LEntry: TResponseEntry;
@@ -596,10 +608,11 @@ begin
       for LPair in FPathParams do
       begin
         LParam := TSwagRequestParameter.Create;
-        LParam.Name          := LPair.Key;
+        LParam.Name          := LPair.Name;
         LParam.InLocation    := rpiPath;
-        LParam.TypeParameter := stpInteger;
-        LParam.Description   := LPair.Value;
+        if LPair.ParamType = qptInteger then LParam.TypeParameter := stpInteger
+                                        else LParam.TypeParameter := stpString;
+        LParam.Description   := LPair.Desc;
         LParam.Required      := True;
         LOp.Parameters.Add(LParam);
       end;

@@ -49,6 +49,12 @@ type
 
 implementation
 
+function LowerFirst(const S: string): string;
+begin
+  if S.IsEmpty then Exit('');
+  Result := LowerCase(Copy(S, 1, 1)) + Copy(S, 2, MaxInt);
+end;
+
 { TJsonMapper }
 
 class constructor TJsonMapper.Create;
@@ -690,7 +696,7 @@ begin
       if not LMethod.Name.StartsWith('Get', True) then
         Continue;
 
-      LPropName := Copy(LMethod.Name, 4, MaxInt);
+      LPropName := LowerFirst(Copy(LMethod.Name, 4, MaxInt));
       if LPropName = '' then
         Continue;
 

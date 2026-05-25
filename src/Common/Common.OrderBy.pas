@@ -1,5 +1,4 @@
-{$CODEPAGE UTF8}
-unit Common.OrderBy;
+﻿unit Common.OrderBy;
 
 interface
 
@@ -49,6 +48,7 @@ type
       FDefault:     string;
       FTiebreakers: TArray<TFixed>;
     function TryFind(const AName: string; out ASql: string): Boolean;
+    function FindClientName(const ASqlExpr: string): string;
     function ParseExpr(const AExpr: string): string;
     function DirStr(ADir: TOrderDir): string;
     function AllowedNames: string;
@@ -139,6 +139,16 @@ begin
   ASql   := '';
 end;
 
+function TOrderBySpec.FindClientName(const ASqlExpr: string): string;
+var
+  LField: TField;
+begin
+  for LField in FAllowed do
+    if SameText(LField.SqlExpr, ASqlExpr) then
+      Exit(LField.ClientName);
+  Result := ASqlExpr;
+end;
+
 function TOrderBySpec.AllowedNames: string;
 var
   LField: TField;
@@ -226,7 +236,7 @@ begin
   for LFixed in FTiebreakers do
   begin
     if LTiePart <> '' then LTiePart := LTiePart + ', ';
-    LTiePart := LTiePart + LFixed.SqlExpr + ' ' + DirStr(LFixed.Dir);
+    LTiePart := LTiePart + FindClientName(LFixed.SqlExpr) + ' ' + DirStr(LFixed.Dir);
   end;
 
   if FDefault <> '' then
