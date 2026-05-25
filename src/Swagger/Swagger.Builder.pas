@@ -118,7 +118,8 @@ implementation
 uses
   System.SysUtils,
   System.RegularExpressions,
-  Horse;
+  Horse,
+  Common.JsonMapper;
 
 // ---------------------------------------------------------------------------
 // Schema generation helpers (standalone, implementation-only)
@@ -256,7 +257,8 @@ end;
 class function TRouteDocBuilder.GenerateSchema(ATypeInfo: PTypeInfo): TJSONObject;
 var
   LCtx: TRttiContext;
-  LType: TRttiInterfaceType;
+  LImplClass: TClass;
+  LRttiType: TRttiInstanceType;
   LMethod: TRttiMethod;
   LFieldName: string;
   LPropJson: TJSONObject;
@@ -266,23 +268,26 @@ var
   LAttr: TCustomAttribute;
   LSwagProp: SwagProp;
 begin
-  LCtx := TRttiContext.Create;
-  try
-    LType  := LCtx.GetType(ATypeInfo) as TRttiInterfaceType;
-    LProps   := TJSONObject.Create;
-    LRequired := TJSONArray.Create;
+  LProps    := TJSONObject.Create;
+  LRequired := TJSONArray.Create;
 
-    if Assigned(LType) then
-    begin
-      for LMethod in LType.GetMethods do
+  LImplClass := TJsonMapper.FindImplClass(ATypeInfo);
+  if Assigned(LImplClass) then
+  begin
+    LCtx := TRttiContext.Create;
+    try
+      LRttiType := LCtx.GetType(LImplClass) as TRttiInstanceType;
+      for LMethod in LRttiType.GetMethods do
       begin
-        if not LMethod.Name.StartsWith('Get') then Continue;
-        if Length(LMethod.GetParameters) > 0   then Continue;
-        if LMethod.ReturnType = nil             then Continue;
+        if LMethod.Parent.Handle <> LRttiType.Handle then Continue;
+        if LMethod.MethodKind <> mkFunction           then Continue;
+        if Length(LMethod.GetParameters) > 0          then Continue;
+        if LMethod.ReturnType = nil                   then Continue;
+        if not LMethod.Name.StartsWith('Get', True)   then Continue;
+
         LFieldName := LMethod.Name.Substring(3);
         if LFieldName.IsEmpty then Continue;
 
-        // Read SwagProp attribute from the getter (if present)
         LSwagProp := nil;
         for LAttr in LMethod.GetAttributes do
           if LAttr is SwagProp then
@@ -293,8 +298,7 @@ begin
 
         LIsRequired := True;
         LNullable   := False;
-        LPropJson   := BuildPropertyJson(
-          LMethod.ReturnType, LIsRequired, LNullable, LSwagProp);
+        LPropJson   := BuildPropertyJson(LMethod.ReturnType, LIsRequired, LNullable, LSwagProp);
 
         if LNullable then
           LPropJson.AddPair('nullable', TJSONBool.Create(True));
@@ -303,19 +307,18 @@ begin
         if LIsRequired then
           LRequired.Add(LFieldName);
       end;
+    finally
+      LCtx.Free;
     end;
-
-    Result := TJSONObject.Create;
-    Result.AddPair('type', 'object');
-    Result.AddPair('properties', LProps);
-    if LRequired.Count > 0 then
-      Result.AddPair('required', LRequired)
-    else
-      FreeAndNil(LRequired);
-
-  finally
-    LCtx.Free;
   end;
+
+  Result := TJSONObject.Create;
+  Result.AddPair('type', 'object');
+  Result.AddPair('properties', LProps);
+  if LRequired.Count > 0 then
+    Result.AddPair('required', LRequired)
+  else
+    FreeAndNil(LRequired);
 end;
 
 class procedure TRouteDocBuilder.EnsureDefinition(ATypeInfo: PTypeInfo);

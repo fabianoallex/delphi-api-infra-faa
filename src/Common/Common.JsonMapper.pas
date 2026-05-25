@@ -42,6 +42,7 @@ type
     class destructor Destroy;
 
     class procedure RegisterMapping<I: IInterface; C: class, constructor>;
+    class function FindImplClass(ATypeInfo: PTypeInfo): TClass;
     class function FromJson<I: IInterface>(const AJson: string): I;
     class function ToJson<I: IInterface>(const AIntf: I): string;
   end;
@@ -68,6 +69,15 @@ var
 begin
   LGuid := GetTypeData(TypeInfo(I))^.Guid;
   FRegistry.AddOrSetValue(LGuid, C);
+end;
+
+class function TJsonMapper.FindImplClass(ATypeInfo: PTypeInfo): TClass;
+var
+  LGuid: TGUID;
+begin
+  LGuid := GetTypeData(ATypeInfo)^.Guid;
+  if not FRegistry.TryGetValue(LGuid, Result) then
+    Result := nil;
 end;
 
 { Deserialization internals }
