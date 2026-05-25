@@ -6,19 +6,7 @@ Melhorias identificadas na avaliação da estrutura de tools MCP, ordenadas por 
 
 ## Alta prioridade
 
-### 1. Descriptions ricas com retorno e dependências
-
-**Arquivo:** `MCP.Server.pas` — geração de description da tool  
-**Problema:** Descriptions atuais descrevem apenas a ação, não o retorno nem as dependências entre tools. Agentes não sabem encadear chamadas sem tentar e errar.  
-**Solução:** Enriquecer as descriptions no `[SwagProp]` dos DTOs de resposta e/ou adicionar campo de description de retorno no builder de rotas.
-
-```
-"Listar todos os produtos"
-→ "Retorna array de produtos com campos id e Nome. Use o id retornado
-   em get_produto, update_produto ou delete_produto."
-```
-
----
+### ~~1. Descriptions ricas com retorno e dependências~~ ✓
 
 ### 2. Campo `isError` no envelope de resposta do tools/call
 
@@ -98,6 +86,8 @@ pedido_list     pedido_create     pedido_get
 ---
 
 ## Concluído
+
+- [x] Item 1 — Descriptions ricas: `BuildDescription` combina Summary + `.Descr()` + "Returns: field (type, desc)..." auto-gerado do schema de resposta
 
 - [x] `Common.DTO.Base.pas` — hierarquia de interfaces/classes base para DTOs
 - [x] Nomes de tools singularizados (`create_produto`, `list_produto`)

@@ -50,6 +50,8 @@ type
     class function MethodStr(AOp: TSwagPathTypeOperation): string;
     class function ResolveRef(const ADefName: string; ADoc: TSwagDoc): TJSONObject;
     class function BuildSchema(AOp: TSwagPathOperation; ADoc: TSwagDoc): TJSONObject;
+    class function BuildReturnHint(AOp: TSwagPathOperation; ADoc: TSwagDoc): string;
+    class function BuildDescription(AOp: TSwagPathOperation; ADoc: TSwagDoc): string;
 
     class function Dispatch(const AJson: string;
       ATools: TObjectList<TTool>;
@@ -94,6 +96,7 @@ uses
   System.Net.HttpClient,
   Swag.Doc.Path,
   Swag.Doc.Path.Operation.RequestParameter,
+  Swag.Doc.Path.Operation.Response,
   Swag.Doc.Definition,
   MCP.Utils,
   Horse;
@@ -239,6 +242,116 @@ begin
   else
     LRequired.Free;
   Result.AddPair('additionalProperties', TJSONBool.Create(False));
+end;
+
+{ TMcpServer — description building }
+
+class function TMcpServer.BuildReturnHint(AOp: TSwagPathOperation; ADoc: TSwagDoc): string;
+var
+  LResponse: TSwagResponse;
+  LDefName: string;
+  LDef, LProps, LPropObj: TJSONObject;
+  LJsonSchema, LItemsObj, LInnerItems: TJSONObject;
+  LPair: TJSONPair;
+  LRefVal, LTypeVal, LDescVal: TJSONValue;
+  LTypeStr, LDescStr, LFieldStr: string;
+  LFields: TArray<string>;
+begin
+  Result := '';
+
+  if not (AOp.Responses.TryGetValue('200', LResponse) or
+          AOp.Responses.TryGetValue('201', LResponse)) then
+    Exit;
+
+  LDefName := '';
+
+  if not LResponse.Schema.Name.IsEmpty then
+    // Simple object: Schema.Name = definition name
+    LDefName := LResponse.Schema.Name
+  else if Assigned(LResponse.Schema.JsonSchema) then
+  begin
+    LJsonSchema := LResponse.Schema.JsonSchema;
+    LTypeVal    := LJsonSchema.GetValue('type');
+    if not Assigned(LTypeVal) then Exit;
+
+    if LTypeVal.Value = 'array' then
+    begin
+      // {"type":"array","items":{"$ref":"#/definitions/X"}}
+      LItemsObj := LJsonSchema.GetValue('items') as TJSONObject;
+      if Assigned(LItemsObj) then
+      begin
+        LRefVal := LItemsObj.GetValue('$ref');
+        if Assigned(LRefVal) then
+          LDefName := LRefVal.Value.Replace('#/definitions/', '');
+      end;
+    end
+    else if LTypeVal.Value = 'object' then
+    begin
+      // Paged: properties → items → items → $ref
+      LProps := LJsonSchema.GetValue('properties') as TJSONObject;
+      if Assigned(LProps) then
+      begin
+        LItemsObj := LProps.GetValue('items') as TJSONObject;
+        if Assigned(LItemsObj) then
+        begin
+          LInnerItems := LItemsObj.GetValue('items') as TJSONObject;
+          if Assigned(LInnerItems) then
+          begin
+            LRefVal := LInnerItems.GetValue('$ref');
+            if Assigned(LRefVal) then
+              LDefName := LRefVal.Value.Replace('#/definitions/', '');
+          end;
+        end;
+      end;
+    end;
+  end;
+
+  if LDefName.IsEmpty then Exit;
+
+  LDef := ResolveRef(LDefName, ADoc);
+  if not Assigned(LDef) then Exit;
+
+  LProps := LDef.GetValue('properties') as TJSONObject;
+  if not Assigned(LProps) or (LProps.Count = 0) then Exit;
+
+  LFields := [];
+  for LPair in LProps do
+  begin
+    if not (LPair.JsonValue is TJSONObject) then Continue;
+    LPropObj := TJSONObject(LPair.JsonValue);
+
+    LTypeVal := LPropObj.GetValue('type');
+    LDescVal := LPropObj.GetValue('description');
+
+    LTypeStr := '';
+    LDescStr := '';
+    if Assigned(LTypeVal) then LTypeStr := LTypeVal.Value;
+    if Assigned(LDescVal) then LDescStr := LDescVal.Value;
+
+    if not LDescStr.IsEmpty then
+      LFieldStr := LPair.JsonString.Value + ' (' + LTypeStr + ', ' + LDescStr + ')'
+    else
+      LFieldStr := LPair.JsonString.Value + ' (' + LTypeStr + ')';
+
+    LFields := LFields + [LFieldStr];
+  end;
+
+  if Length(LFields) > 0 then
+    Result := 'Returns: ' + string.Join(', ', LFields) + '.';
+end;
+
+class function TMcpServer.BuildDescription(AOp: TSwagPathOperation; ADoc: TSwagDoc): string;
+var
+  LReturnHint: string;
+begin
+  Result := AOp.Summary;
+
+  if not AOp.Description.IsEmpty then
+    Result := Result + '. ' + AOp.Description;
+
+  LReturnHint := BuildReturnHint(AOp, ADoc);
+  if not LReturnHint.IsEmpty then
+    Result := Result + ' ' + LReturnHint;
 end;
 
 { TMcpServer — JSON-RPC helpers }
@@ -516,7 +629,7 @@ begin
         LTool.Name := LOp.OperationId
       else
         LTool.Name := McpDeriveName(LMethod, LPath.Uri);
-      LTool.Description := LOp.Summary;
+      LTool.Description := BuildDescription(LOp, ADoc);
       LTool.Method      := LMethod;
       LTool.Path        := LPath.Uri;
       LTool.InputSchema := BuildSchema(LOp, ADoc);
