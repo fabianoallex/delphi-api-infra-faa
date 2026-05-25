@@ -84,6 +84,11 @@ type
         IsArray: Boolean;
         IsPaged: Boolean;
       end;
+      TQueryParamEntry = record
+        Name:      string;
+        Desc:      string;
+        SwagType:  TSwagPathTypeOperationParameterType;
+      end;
 
   private
     FUri: string;
@@ -92,7 +97,7 @@ type
     FDescription: string;
     FTags: TList<string>;
     FPathParams:  TList<TPair<string, string>>;
-    FQueryParams: TList<TPair<string, string>>;
+    FQueryParams: TList<TQueryParamEntry>;
     FBodySchemaRef: string;
     FBodyDesc: string;
     FResponses: TList<TResponseEntry>;
@@ -114,7 +119,8 @@ type
     function PathParam(const AName: string;
       const ADesc: string = ''): TRouteDocBuilder;
     function QueryParam(const AName: string;
-      const ADesc: string = ''): TRouteDocBuilder;
+      const ADesc: string = '';
+      AType: TSwagPathTypeOperationParameterType = stpString): TRouteDocBuilder;
 
     function Body<I: IInterface>(
       const ADesc: string = ''): TRouteDocBuilder;
@@ -435,7 +441,7 @@ begin
   FOperation := AOp;
   FTags       := TList<string>.Create;
   FPathParams  := TList<TPair<string, string>>.Create;
-  FQueryParams := TList<TPair<string, string>>.Create;
+  FQueryParams := TList<TQueryParamEntry>.Create;
   FResponses   := TList<TResponseEntry>.Create;
 end;
 
@@ -474,9 +480,14 @@ begin
 end;
 
 function TRouteDocBuilder.QueryParam(const AName: string;
-  const ADesc: string): TRouteDocBuilder;
+  const ADesc: string; AType: TSwagPathTypeOperationParameterType): TRouteDocBuilder;
+var
+  LEntry: TQueryParamEntry;
 begin
-  FQueryParams.Add(TPair<string, string>.Create(AName, ADesc));
+  LEntry.Name     := AName;
+  LEntry.Desc     := ADesc;
+  LEntry.SwagType := AType;
+  FQueryParams.Add(LEntry);
   Result := Self;
 end;
 
@@ -559,6 +570,7 @@ var
   LOp: TSwagPathOperation;
   LParam: TSwagRequestParameter;
   LPair: TPair<string, string>;
+  LQPair: TQueryParamEntry;
   LResp: TSwagResponse;
   LEntry: TResponseEntry;
   LItemsSchema, LArraySchema: TJSONObject;
@@ -591,13 +603,13 @@ begin
       end;
 
       // Query parameters
-      for LPair in FQueryParams do
+      for LQPair in FQueryParams do
       begin
         LParam := TSwagRequestParameter.Create;
-        LParam.Name          := LPair.Key;
+        LParam.Name          := LQPair.Name;
         LParam.InLocation    := rpiQuery;
-        LParam.TypeParameter := stpString;
-        LParam.Description   := LPair.Value;
+        LParam.TypeParameter := LQPair.SwagType;
+        LParam.Description   := LQPair.Desc;
         LParam.Required      := False;
         LOp.Parameters.Add(LParam);
       end;
