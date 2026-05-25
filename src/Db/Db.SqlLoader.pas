@@ -278,7 +278,7 @@ begin
   RS := TResourceStream.Create(HInstance, RSName, RT_RCDATA);
   SL := TStringList.Create;
   try
-    SL.LoadFromStream(RS);
+    SL.LoadFromStream(RS, TEncoding.UTF8);
     Result := SL.Text;
   finally
     SL.Free;

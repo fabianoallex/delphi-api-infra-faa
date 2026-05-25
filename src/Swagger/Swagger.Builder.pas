@@ -82,6 +82,7 @@ type
         Desc: string;
         SchemaRef: string;
         IsArray: Boolean;
+        IsPaged: Boolean;
       end;
 
   private
@@ -100,6 +101,7 @@ type
     class function NormalizeUri(const AUri: string): string; static;
     class function SchemaNameFromTypeInfo(ATypeInfo: PTypeInfo): string; static;
     class function GenerateSchema(ATypeInfo: PTypeInfo): TJSONObject; static;
+    class function BuildPagedSchema(const AItemSchemaRef: string): TJSONObject; static;
     class procedure EnsureDefinition(ATypeInfo: PTypeInfo); static;
 
   public
@@ -120,6 +122,9 @@ type
       const ACode: string;
       const ADesc: string = ''): TRouteDocBuilder;
     function ResponseArray<I: IInterface>(
+      const ACode: string;
+      const ADesc: string = ''): TRouteDocBuilder;
+    function ResponsePaged<I: IInterface>(
       const ACode: string;
       const ADesc: string = ''): TRouteDocBuilder;
     function NoContent(
@@ -346,6 +351,60 @@ begin
     FreeAndNil(LRequired);
 end;
 
+class function TRouteDocBuilder.BuildPagedSchema(const AItemSchemaRef: string): TJSONObject;
+var
+  LProps:    TJSONObject;
+  LRequired: TJSONArray;
+  LProp:     TJSONObject;
+  LItemsRef: TJSONObject;
+  LItemsArr: TJSONObject;
+
+  procedure AddIntProp(const AName: string);
+  begin
+    LProp := TJSONObject.Create;
+    LProp.AddPair('type', 'integer');
+    LProp.AddPair('format', 'int32');
+    LProps.AddPair(AName, LProp);
+  end;
+
+  procedure AddBoolProp(const AName: string);
+  begin
+    LProp := TJSONObject.Create;
+    LProp.AddPair('type', 'boolean');
+    LProps.AddPair(AName, LProp);
+  end;
+
+begin
+  LProps := TJSONObject.Create;
+  AddIntProp('page');
+  AddIntProp('limit');
+  AddIntProp('total');
+  AddIntProp('totalPages');
+  AddBoolProp('hasNext');
+  AddBoolProp('hasPrev');
+
+  LItemsRef := TJSONObject.Create;
+  LItemsRef.AddPair('$ref', '#/definitions/' + AItemSchemaRef);
+  LItemsArr := TJSONObject.Create;
+  LItemsArr.AddPair('type', 'array');
+  LItemsArr.AddPair('items', LItemsRef);
+  LProps.AddPair('items', LItemsArr);
+
+  LRequired := TJSONArray.Create;
+  LRequired.Add('page');
+  LRequired.Add('limit');
+  LRequired.Add('total');
+  LRequired.Add('totalPages');
+  LRequired.Add('hasNext');
+  LRequired.Add('hasPrev');
+  LRequired.Add('items');
+
+  Result := TJSONObject.Create;
+  Result.AddPair('type', 'object');
+  Result.AddPair('properties', LProps);
+  Result.AddPair('required', LRequired);
+end;
+
 class procedure TRouteDocBuilder.EnsureDefinition(ATypeInfo: PTypeInfo);
 var
   LName: string;
@@ -439,6 +498,7 @@ begin
   LEntry.Desc      := ADesc;
   LEntry.SchemaRef := SchemaNameFromTypeInfo(TypeInfo(I));
   LEntry.IsArray   := False;
+  LEntry.IsPaged   := False;
   FResponses.Add(LEntry);
   Result := Self;
 end;
@@ -453,6 +513,22 @@ begin
   LEntry.Desc      := ADesc;
   LEntry.SchemaRef := SchemaNameFromTypeInfo(TypeInfo(I));
   LEntry.IsArray   := True;
+  LEntry.IsPaged   := False;
+  FResponses.Add(LEntry);
+  Result := Self;
+end;
+
+function TRouteDocBuilder.ResponsePaged<I>(const ACode: string;
+  const ADesc: string): TRouteDocBuilder;
+var
+  LEntry: TResponseEntry;
+begin
+  EnsureDefinition(TypeInfo(I));
+  LEntry.Code      := ACode;
+  LEntry.Desc      := ADesc;
+  LEntry.SchemaRef := SchemaNameFromTypeInfo(TypeInfo(I));
+  LEntry.IsArray   := False;
+  LEntry.IsPaged   := True;
   FResponses.Add(LEntry);
   Result := Self;
 end;
@@ -466,6 +542,7 @@ begin
   LEntry.Desc      := ADesc;
   LEntry.SchemaRef := '';
   LEntry.IsArray   := False;
+  LEntry.IsPaged   := False;
   FResponses.Add(LEntry);
   Result := Self;
 end;
@@ -546,7 +623,9 @@ begin
 
         if LEntry.SchemaRef <> '' then
         begin
-          if LEntry.IsArray then
+          if LEntry.IsPaged then
+            LResp.Schema.JsonSchema := BuildPagedSchema(LEntry.SchemaRef)
+          else if LEntry.IsArray then
           begin
             LItemsSchema := TJSONObject.Create;
             LItemsSchema.AddPair('$ref', '#/definitions/' + LEntry.SchemaRef);
