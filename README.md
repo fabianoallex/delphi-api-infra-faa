@@ -1,6 +1,8 @@
 # delphi-api-infra-faa
 
-Biblioteca de infraestrutura para APIs Delphi com Firebird. Fornece tipos opcionais/anuláveis, serialização JSON, pool de conexões e carregamento de SQL.
+Biblioteca de infraestrutura para APIs Delphi. Fornece tipos opcionais/anuláveis, serialização JSON, pool de conexões, carregamento de SQL, documentação Swagger e exposição de tools MCP.
+
+O acesso a banco de dados é agnóstico: a camada de abstração (`Db.Interfaces`) desacopla a lógica da aplicação de qualquer componente ou banco. Inclui um adaptador FireDAC pronto para uso (Firebird, PostgreSQL e outros bancos suportados pelo FireDAC), e a arquitetura permite registrar adaptadores para qualquer outro componente (Zeos, UniDAC, dbExpress, etc.) implementando as interfaces de `Db.Interfaces`.
 
 ## Conteúdo
 
