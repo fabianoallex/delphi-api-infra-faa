@@ -1,6 +1,4 @@
-unit MCP.Server;
-
-{$CODEPAGE UTF8}
+﻿unit MCP.Server;
 
 {
   Expõe as rotas documentadas no TSwagDoc como tools MCP (Model Context Protocol).
@@ -50,10 +48,8 @@ type
     class var FAllToolLists: TObjectList<TObjectList<TTool>>;
 
     class function MethodStr(AOp: TSwagPathTypeOperation): string;
-    class function DeriveName(const AMethod, APath: string): string;
     class function ResolveRef(const ADefName: string; ADoc: TSwagDoc): TJSONObject;
     class function BuildSchema(AOp: TSwagPathOperation; ADoc: TSwagDoc): TJSONObject;
-    class function MatchesTags(AOp: TSwagPathOperation; ATags: TStrings): Boolean;
 
     class function Dispatch(const AJson: string;
       ATools: TObjectList<TTool>;
@@ -98,6 +94,7 @@ uses
   Swag.Doc.Path,
   Swag.Doc.Path.Operation.RequestParameter,
   Swag.Doc.Definition,
+  MCP.Utils,
   Horse;
 
 { TTool }
@@ -135,29 +132,6 @@ begin
   end;
 end;
 
-class function TMcpServer.DeriveName(const AMethod, APath: string): string;
-var
-  LParts: TArray<string>;
-  LResource, S: string;
-  LHasId: Boolean;
-begin
-  LHasId    := APath.Contains('{');
-  LParts    := APath.TrimLeft(['/']).Split(['/']);
-  LResource := '';
-  for S in LParts do
-    if not S.StartsWith('{') then
-      LResource := S.Replace('-', '_');
-  if LResource.EndsWith('s') then
-    LResource := LResource.Substring(0, LResource.Length - 1);
-  if      SameText(AMethod, 'GET')    and not LHasId then Result := 'list_'   + LResource
-  else if SameText(AMethod, 'GET')                   then Result := 'get_'    + LResource
-  else if SameText(AMethod, 'POST')                  then Result := 'create_' + LResource
-  else if SameText(AMethod, 'PATCH') or
-          SameText(AMethod, 'PUT')                   then Result := 'update_' + LResource
-  else if SameText(AMethod, 'DELETE')                then Result := 'delete_' + LResource
-  else                                                    Result := LowerCase(AMethod) + '_' + LResource;
-end;
-
 class function TMcpServer.ResolveRef(const ADefName: string; ADoc: TSwagDoc): TJSONObject;
 var
   I: Integer;
@@ -166,18 +140,6 @@ begin
   for I := 0 to ADoc.Definitions.Count - 1 do
     if SameText(ADoc.Definitions[I].Name, ADefName) then
       Exit(ADoc.Definitions[I].JsonSchema);
-end;
-
-class function TMcpServer.MatchesTags(AOp: TSwagPathOperation; ATags: TStrings): Boolean;
-var
-  I: Integer;
-begin
-  if (ATags = nil) or (ATags.Count = 0) then
-    Exit(True);
-  for I := 0 to AOp.Tags.Count - 1 do
-    if ATags.IndexOf(AOp.Tags[I]) >= 0 then
-      Exit(True);
-  Result := False;
 end;
 
 class function TMcpServer.BuildSchema(AOp: TSwagPathOperation; ADoc: TSwagDoc): TJSONObject;
@@ -540,11 +502,11 @@ begin
          (AExcluded.IndexOf(LMethod + ':' + LPath.Uri) >= 0) then
         Continue;
 
-      if not MatchesTags(LOp, ATags) then
+      if not McpMatchesTags(LOp.Tags.ToArray, ATags) then
         Continue;
 
       LTool             := TTool.Create;
-      LTool.Name        := DeriveName(LMethod, LPath.Uri);
+      LTool.Name        := McpDeriveName(LMethod, LPath.Uri);
       LTool.Description := LOp.Summary;
       LTool.Method      := LMethod;
       LTool.Path        := LPath.Uri;
