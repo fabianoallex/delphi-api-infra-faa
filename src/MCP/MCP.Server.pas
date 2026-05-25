@@ -1,16 +1,24 @@
-﻿unit MCP.Server;
+unit MCP.Server;
+
+{$CODEPAGE UTF8}
 
 {
   Expõe as rotas documentadas no TSwagDoc como tools MCP (Model Context Protocol).
   Transporte: HTTP, JSON-RPC 2.0 — POST <endpoint>.
   Execução de tools: HTTP call de volta ao próprio servidor Horse.
 
-  Fluxo de uso:
-    TRouteDoc.Init(...);
-    TMinhaController.RegisterRoutes(LService);
+  Uso básico — endpoint único com todas as tools:
     TMcpServer.Register(TRouteDoc.CurrentDoc, '/mcp', 'http://localhost:9000');
-    TRouteDoc.Serve('/swagger');
-    THorse.Listen(9000);
+
+  Uso com múltiplos endpoints filtrados por tag:
+    var LTags := TStringList.Create;
+    try
+      LTags.Add('cidades');
+      TMcpServer.Register(TRouteDoc.CurrentDoc, '/mcp/cidades',
+        'http://localhost:9000', 'api', '1.0.0', nil, LTags);
+    finally
+      LTags.Free;
+    end;
 }
 
 interface
@@ -38,25 +46,29 @@ type
         destructor Destroy; override;
       end;
 
-    class var FTools: TObjectList<TTool>;
-    class var FBaseUrl: string;
-    class var FServerName: string;
-    class var FServerVersion: string;
+    // Owns all per-endpoint tool lists; each Horse closure holds a non-owning ref
+    class var FAllToolLists: TObjectList<TObjectList<TTool>>;
 
     class function MethodStr(AOp: TSwagPathTypeOperation): string;
     class function DeriveName(const AMethod, APath: string): string;
     class function ResolveRef(const ADefName: string; ADoc: TSwagDoc): TJSONObject;
     class function BuildSchema(AOp: TSwagPathOperation; ADoc: TSwagDoc): TJSONObject;
+    class function MatchesTags(AOp: TSwagPathOperation; ATags: TStrings): Boolean;
 
-    class function Dispatch(const AJson: string): string;
+    class function Dispatch(const AJson: string;
+      ATools: TObjectList<TTool>;
+      const ABaseUrl, AServerName, AServerVersion: string): string;
     class function MakeResult(AId: TJSONValue; AResult: TJSONValue): TJSONObject;
     class function MakeError(AId: TJSONValue; ACode: Integer; const AMsg: string): TJSONObject;
 
-    class function OnInitialize(AId: TJSONValue): TJSONObject;
-    class function OnToolsList(AId: TJSONValue): TJSONObject;
-    class function OnToolsCall(AId: TJSONValue; AParams: TJSONObject): TJSONObject;
+    class function OnInitialize(AId: TJSONValue;
+      const AServerName, AServerVersion: string): TJSONObject;
+    class function OnToolsList(AId: TJSONValue;
+      ATools: TObjectList<TTool>): TJSONObject;
+    class function OnToolsCall(AId: TJSONValue; AParams: TJSONObject;
+      ATools: TObjectList<TTool>; const ABaseUrl: string): TJSONObject;
     class function HttpCall(const AMethod, APath: string; AArgs: TJSONObject;
-      const APathParams: TArray<string>): string;
+      const APathParams: TArray<string>; const ABaseUrl: string): string;
   public
     class constructor Create;
     class destructor Destroy;
@@ -64,15 +76,19 @@ type
     /// <summary>
     /// Lê ADoc, constrói a lista de tools e registra POST AEndpoint no Horse.
     /// Chamar antes de TRouteDoc.Serve — o doc é lido mas não é liberado aqui.
-    /// AExcluded: lista opcional de chaves "METHOD:PATH" a omitir das tools
-    /// (passar TRouteDoc.McpExcluded para respeitar as chamadas .NoMcp()).
+    /// AExcluded: lista de chaves "METHOD:PATH" a omitir (ver TRouteDoc.McpExcluded).
+    /// ATags: se fornecido, inclui apenas operations que tenham pelo menos uma
+    ///   das tags listadas. nil ou vazio = todas as operations.
+    /// Pode ser chamado múltiplas vezes com endpoints diferentes para expor
+    /// subconjuntos de tools por domínio (ex: '/mcp/cidades', '/mcp/produtos').
     /// </summary>
     class procedure Register(ADoc: TSwagDoc;
       const AEndpoint: string      = '/mcp';
       const ABaseUrl: string       = 'http://localhost:9000';
       const AServerName: string    = 'api';
       const AServerVersion: string = '1.0.0';
-      AExcluded: TStrings          = nil);
+      AExcluded: TStrings          = nil;
+      ATags: TStrings              = nil);
   end;
 
 implementation
@@ -96,12 +112,12 @@ end;
 
 class constructor TMcpServer.Create;
 begin
-  FTools := TObjectList<TTool>.Create(True);
+  FAllToolLists := TObjectList<TObjectList<TTool>>.Create(True);
 end;
 
 class destructor TMcpServer.Destroy;
 begin
-  FTools.Free;
+  FAllToolLists.Free;
 end;
 
 { TMcpServer — schema building }
@@ -150,6 +166,18 @@ begin
   for I := 0 to ADoc.Definitions.Count - 1 do
     if SameText(ADoc.Definitions[I].Name, ADefName) then
       Exit(ADoc.Definitions[I].JsonSchema);
+end;
+
+class function TMcpServer.MatchesTags(AOp: TSwagPathOperation; ATags: TStrings): Boolean;
+var
+  I: Integer;
+begin
+  if (ATags = nil) or (ATags.Count = 0) then
+    Exit(True);
+  for I := 0 to AOp.Tags.Count - 1 do
+    if ATags.IndexOf(AOp.Tags[I]) >= 0 then
+      Exit(True);
+  Result := False;
 end;
 
 class function TMcpServer.BuildSchema(AOp: TSwagPathOperation; ADoc: TSwagDoc): TJSONObject;
@@ -280,7 +308,8 @@ end;
 
 { TMcpServer — MCP method handlers }
 
-class function TMcpServer.OnInitialize(AId: TJSONValue): TJSONObject;
+class function TMcpServer.OnInitialize(AId: TJSONValue;
+  const AServerName, AServerVersion: string): TJSONObject;
 var
   LResult, LCaps, LInfo: TJSONObject;
 begin
@@ -288,8 +317,8 @@ begin
   LCaps.AddPair('tools', TJSONObject.Create);
 
   LInfo := TJSONObject.Create;
-  LInfo.AddPair('name',    FServerName);
-  LInfo.AddPair('version', FServerVersion);
+  LInfo.AddPair('name',    AServerName);
+  LInfo.AddPair('version', AServerVersion);
 
   LResult := TJSONObject.Create;
   LResult.AddPair('protocolVersion', '2024-11-05');
@@ -299,7 +328,8 @@ begin
   Result := MakeResult(AId, LResult);
 end;
 
-class function TMcpServer.OnToolsList(AId: TJSONValue): TJSONObject;
+class function TMcpServer.OnToolsList(AId: TJSONValue;
+  ATools: TObjectList<TTool>): TJSONObject;
 var
   LList: TJSONArray;
   LTool: TTool;
@@ -307,7 +337,7 @@ var
   LResult: TJSONObject;
 begin
   LList := TJSONArray.Create;
-  for LTool in FTools do
+  for LTool in ATools do
   begin
     LObj := TJSONObject.Create;
     LObj.AddPair('name',        LTool.Name);
@@ -320,7 +350,8 @@ begin
   Result := MakeResult(AId, LResult);
 end;
 
-class function TMcpServer.OnToolsCall(AId: TJSONValue; AParams: TJSONObject): TJSONObject;
+class function TMcpServer.OnToolsCall(AId: TJSONValue; AParams: TJSONObject;
+  ATools: TObjectList<TTool>; const ABaseUrl: string): TJSONObject;
 var
   LNameVal: TJSONValue;
   LName: string;
@@ -344,7 +375,7 @@ begin
   if LArgsVal is TJSONObject then LArgs := TJSONObject(LArgsVal) else LArgs := nil;
 
   LFound := nil;
-  for LTool in FTools do
+  for LTool in ATools do
     if SameText(LTool.Name, LName) then
     begin
       LFound := LTool;
@@ -355,7 +386,7 @@ begin
     Exit(MakeError(AId, -32602, 'Tool desconhecida: ' + LName));
 
   try
-    LOutput := HttpCall(LFound.Method, LFound.Path, LArgs, LFound.PathParams);
+    LOutput := HttpCall(LFound.Method, LFound.Path, LArgs, LFound.PathParams, ABaseUrl);
   except
     on E: Exception do
       Exit(MakeError(AId, -32603, 'Falha na execução: ' + E.Message));
@@ -377,7 +408,8 @@ end;
 { TMcpServer — HTTP execution }
 
 class function TMcpServer.HttpCall(const AMethod, APath: string;
-  AArgs: TJSONObject; const APathParams: TArray<string>): string;
+  AArgs: TJSONObject; const APathParams: TArray<string>;
+  const ABaseUrl: string): string;
 var
   LUrl: string;
   LBody: TJSONObject;
@@ -388,14 +420,12 @@ var
   LStream: TStringStream;
   LResponse: IHTTPResponse;
 begin
-  // Build URL — replace {param} placeholders with argument values
-  LUrl := FBaseUrl + APath;
+  LUrl := ABaseUrl + APath;
   if Assigned(AArgs) then
     for LParamName in APathParams do
       LUrl := LUrl.Replace('{' + LParamName + '}',
         AArgs.GetValue(LParamName).Value);
 
-  // Body = all args except path params
   LBody := TJSONObject.Create;
   try
     if Assigned(AArgs) then
@@ -437,7 +467,9 @@ end;
 
 { TMcpServer — JSON-RPC dispatcher }
 
-class function TMcpServer.Dispatch(const AJson: string): string;
+class function TMcpServer.Dispatch(const AJson: string;
+  ATools: TObjectList<TTool>;
+  const ABaseUrl, AServerName, AServerVersion: string): string;
 var
   LReq: TJSONObject;
   LId: TJSONValue;
@@ -457,11 +489,11 @@ begin
     if LParamsVal is TJSONObject then LParams := TJSONObject(LParamsVal) else LParams := nil;
 
     LResp := nil;
-    if      LMethod = 'initialize'                then LResp := OnInitialize(LId)
+    if      LMethod = 'initialize'                then LResp := OnInitialize(LId, AServerName, AServerVersion)
     else if LMethod = 'notifications/initialized' then {fire-and-forget — sem resposta}
-    else if LMethod = 'tools/list'                then LResp := OnToolsList(LId)
-    else if LMethod = 'tools/call'                then LResp := OnToolsCall(LId, LParams)
-    else if Assigned(LId) then  // notifications sem id não precisam de resposta de erro
+    else if LMethod = 'tools/list'                then LResp := OnToolsList(LId, ATools)
+    else if LMethod = 'tools/call'                then LResp := OnToolsCall(LId, LParams, ATools, ABaseUrl)
+    else if Assigned(LId) then
       LResp := MakeError(LId, -32601, 'Method not found: ' + LMethod);
 
     if Assigned(LResp) then
@@ -479,18 +511,24 @@ end;
 
 class procedure TMcpServer.Register(ADoc: TSwagDoc;
   const AEndpoint, ABaseUrl, AServerName, AServerVersion: string;
-  AExcluded: TStrings);
+  AExcluded: TStrings; ATags: TStrings);
 var
   LPath: TSwagPath;
   LOp: TSwagPathOperation;
   LTool: TTool;
   LMethod: string;
   LParam: TSwagRequestParameter;
+  LTools: TObjectList<TTool>;
+  LCapturedBaseUrl: string;
+  LCapturedServerName: string;
+  LCapturedServerVersion: string;
 begin
-  FBaseUrl       := ABaseUrl;
-  FServerName    := AServerName;
-  FServerVersion := AServerVersion;
-  FTools.Clear;
+  LTools := TObjectList<TTool>.Create(True);
+  FAllToolLists.Add(LTools);
+
+  LCapturedBaseUrl       := ABaseUrl;
+  LCapturedServerName    := AServerName;
+  LCapturedServerVersion := AServerVersion;
 
   for LPath in ADoc.Paths do
     for LOp in LPath.Operations do
@@ -500,6 +538,9 @@ begin
 
       if Assigned(AExcluded) and
          (AExcluded.IndexOf(LMethod + ':' + LPath.Uri) >= 0) then
+        Continue;
+
+      if not MatchesTags(LOp, ATags) then
         Continue;
 
       LTool             := TTool.Create;
@@ -517,7 +558,7 @@ begin
           LTool.PathParams[High(LTool.PathParams)] := LParam.Name;
         end;
 
-      FTools.Add(LTool);
+      LTools.Add(LTool);
     end;
 
   THorse.Post(AEndpoint,
@@ -525,7 +566,8 @@ begin
     var
       LBody: string;
     begin
-      LBody := Dispatch(Req.Body);
+      LBody := Dispatch(Req.Body, LTools,
+        LCapturedBaseUrl, LCapturedServerName, LCapturedServerVersion);
       if LBody <> '' then
         Res.ContentType('application/json; charset=utf-8').Send(LBody)
       else
