@@ -1,4 +1,4 @@
-unit Common.JsonMapperTests;
+﻿unit Common.JsonMapperTests;
 
 interface
 
@@ -10,11 +10,11 @@ uses
 type
   // Interfaces exclusivas deste arquivo — GUIDs únicos garantem isolamento
   IFindImplTest = interface
-    ['{F1A2B3C4-D5E6-4F78-9012-3456789ABCDE}']
+    ['{2AA7DBC2-A739-4F07-B2E6-74BF74A7703A}']
   end;
 
   IFindImplNotRegistered = interface
-    ['{02345678-9ABC-4DEF-0123-456789ABCDEF}']
+    ['{ED8AA6C9-02EC-4626-9857-1E051741D275}']
   end;
 
   TFindImplTest = class(TInterfacedObject, IFindImplTest)
@@ -55,5 +55,8 @@ begin
   LClass := TJsonMapper.FindImplClass(TypeInfo(IFindImplNotRegistered));
   Assert.IsNull(LClass);
 end;
+
+initialization
+  TDUnitX.RegisterTestFixture(TJsonMapperTests);
 
 end.

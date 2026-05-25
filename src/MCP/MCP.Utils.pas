@@ -1,6 +1,4 @@
-unit MCP.Utils;
-
-{$CODEPAGE UTF8}
+﻿unit MCP.Utils;
 
 interface
 

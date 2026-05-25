@@ -1,4 +1,4 @@
-program Infra.IntegrationTests;
+﻿program Infra.IntegrationTests;
 
 {$APPTYPE GUI}
 {$STRONGLINKTYPES ON}

@@ -1,6 +1,4 @@
-unit Common.PaginationTests;
-
-{$CODEPAGE UTF8}
+﻿unit Common.PaginationTests;
 
 interface
 

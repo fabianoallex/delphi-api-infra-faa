@@ -1,6 +1,4 @@
-unit Common.OrderByTests;
-
-{$CODEPAGE UTF8}
+﻿unit Common.OrderByTests;
 
 interface
 
