@@ -506,7 +506,10 @@ begin
         Continue;
 
       LTool             := TTool.Create;
-      LTool.Name        := McpDeriveName(LMethod, LPath.Uri);
+      if not LOp.OperationId.IsEmpty then
+        LTool.Name := LOp.OperationId
+      else
+        LTool.Name := McpDeriveName(LMethod, LPath.Uri);
       LTool.Description := LOp.Summary;
       LTool.Method      := LMethod;
       LTool.Path        := LPath.Uri;

@@ -104,6 +104,7 @@ type
     FBodyDesc: string;
     FResponses: TList<TResponseEntry>;
     FNoMcp: Boolean;
+    FToolName: string;
 
     class function NormalizeUri(const AUri: string): string; static;
     class function SchemaNameFromTypeInfo(ATypeInfo: PTypeInfo): string; static;
@@ -139,6 +140,14 @@ type
     function NoContent(
       const ACode: string = '204';
       const ADesc: string = 'No Content'): TRouteDocBuilder;
+
+    /// <summary>
+    /// Define o nome explícito da tool MCP gerada para esta rota, sobrescrevendo
+    /// o nome derivado automaticamente de método+path.
+    /// Usar quando o plural irregular ou composto produziria um nome errado.
+    /// Exemplos: .ToolName('list_operacao'), .ToolName('get_perfil')
+    /// </summary>
+    function ToolName(const AName: string): TRouteDocBuilder;
 
     /// <summary>
     /// Exclui esta rota da geração de tools MCP. A rota continua registrada
@@ -572,6 +581,12 @@ begin
   Result := Self;
 end;
 
+function TRouteDocBuilder.ToolName(const AName: string): TRouteDocBuilder;
+begin
+  FToolName := AName;
+  Result    := Self;
+end;
+
 function TRouteDocBuilder.NoMcp: TRouteDocBuilder;
 begin
   FNoMcp := True;
@@ -600,6 +615,7 @@ begin
       LOp.Operation   := FOperation;
       LOp.Summary     := FSummary;
       LOp.Description := FDescription;
+      LOp.OperationId := FToolName;
 
       for LTag in FTags do
         LOp.Tags.Add(LTag);
