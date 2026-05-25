@@ -90,7 +90,8 @@ type
     FSummary: string;
     FDescription: string;
     FTags: TList<string>;
-    FPathParams: TList<TPair<string, string>>;
+    FPathParams:  TList<TPair<string, string>>;
+    FQueryParams: TList<TPair<string, string>>;
     FBodySchemaRef: string;
     FBodyDesc: string;
     FResponses: TList<TResponseEntry>;
@@ -109,6 +110,8 @@ type
     function Descr(const AText: string): TRouteDocBuilder;
     function Tag(const ATag: string): TRouteDocBuilder;
     function PathParam(const AName: string;
+      const ADesc: string = ''): TRouteDocBuilder;
+    function QueryParam(const AName: string;
       const ADesc: string = ''): TRouteDocBuilder;
 
     function Body<I: IInterface>(
@@ -373,14 +376,16 @@ begin
   FUri       := AUri;
   FOperation := AOp;
   FTags       := TList<string>.Create;
-  FPathParams := TList<TPair<string, string>>.Create;
-  FResponses  := TList<TResponseEntry>.Create;
+  FPathParams  := TList<TPair<string, string>>.Create;
+  FQueryParams := TList<TPair<string, string>>.Create;
+  FResponses   := TList<TResponseEntry>.Create;
 end;
 
 destructor TRouteDocBuilder.Destroy;
 begin
   FreeAndNil(FTags);
   FreeAndNil(FPathParams);
+  FreeAndNil(FQueryParams);
   FreeAndNil(FResponses);
   inherited;
 end;
@@ -407,6 +412,13 @@ function TRouteDocBuilder.PathParam(const AName: string;
   const ADesc: string): TRouteDocBuilder;
 begin
   FPathParams.Add(TPair<string, string>.Create(AName, ADesc));
+  Result := Self;
+end;
+
+function TRouteDocBuilder.QueryParam(const AName: string;
+  const ADesc: string): TRouteDocBuilder;
+begin
+  FQueryParams.Add(TPair<string, string>.Create(AName, ADesc));
   Result := Self;
 end;
 
@@ -499,6 +511,18 @@ begin
         LParam.TypeParameter := stpInteger;
         LParam.Description   := LPair.Value;
         LParam.Required      := True;
+        LOp.Parameters.Add(LParam);
+      end;
+
+      // Query parameters
+      for LPair in FQueryParams do
+      begin
+        LParam := TSwagRequestParameter.Create;
+        LParam.Name          := LPair.Key;
+        LParam.InLocation    := rpiQuery;
+        LParam.TypeParameter := stpString;
+        LParam.Description   := LPair.Value;
+        LParam.Required      := False;
         LOp.Parameters.Add(LParam);
       end;
 
