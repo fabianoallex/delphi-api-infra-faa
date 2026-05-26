@@ -61,7 +61,8 @@ type
     class function Load(ASQLDirectory, AResourceName: string): TSQLResult;
   private
     FSQLDirectory: string;
-    function GetSql(const AResourceName: string): TSQLResult;
+  protected
+    function GetSql(const AResourceName: string): TSQLResult; virtual;
   public
     constructor Create(ASQLDirectory: string);
     property SQLDirectory: string read FSQLDirectory;

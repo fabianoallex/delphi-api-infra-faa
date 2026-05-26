@@ -6,14 +6,6 @@ Melhorias identificadas nas avaliações do projeto, ordenadas por prioridade e 
 
 ## Média prioridade
 
-### 12. Mock de `Db.Interfaces` para testes unitários
-
-**Arquivo:** `tests/` — `Db.Mock.pas`  
-**Problema:** Testes de Service e Repository exigem banco real. Inviabiliza CI sem infraestrutura de banco disponível.  
-**Solução:** `TInMemoryDB` implementando `IDBFactory`, `IQuery` e `IQueryResult` com dados controlados em memória. Permite testar lógica de paginação, ordenação e validação sem conexão.
-
----
-
 ---
 
 ## Baixa prioridade
@@ -56,6 +48,7 @@ Melhorias identificadas nas avaliações do projeto, ordenadas por prioridade e 
 
 ## Concluído
 
+- [x] Item 12 — `Db.Mock.pas`: `TMockDBFactory` implementando `IDBFactory`; `TMockQueryResult` (Empty/SingleRow/MultiRows); `TMockParams` com 56 setters/getters Opt/Null/OptNull; `TMockSQLLoader` retorna chave como SQL (bypass de .res); `TMockExecution` captura snapshot de params; `Db.MockTests.pas` com 4 fixtures DUnitX; `Db.SqlLoader.GetSql` promovido a `protected virtual`
 - [x] Item 13 — `Horse.Middleware.Auth.pas`: `TAuthMiddleware.Bearer(AValidator, AExcludedPrefixes)` valida `Authorization: Bearer`; paths com prefixo excluído passam sem autenticação; retorna 401 com JSON para token ausente, formato inválido ou validator retornando False
 - [x] Item 11 — `Common.HealthCheck.pas`: `THealthCheck.Register(AFactory)` registra `GET /health` fora do Swagger e MCP; testa com `IDBFactory.CreateConnection` + `TestConnection`; retorna `{"status":"ok"}` 200 ou `{"status":"degraded","detail":"..."}` 503
 - [x] Item 10 — `Horse.Middleware.ErrorHandler.pas`: middleware `TErrorHandlerMiddleware.New` captura exceções não tratadas; hierarquia `EHttpException` → `EValidationException` (400), `ENotFoundException` (404), `EConflictException` (409); `EOrderByException` mapeada para 400; qualquer outra `Exception` → 500; resposta `{"error":"..."}` com JSON-safe escaping via `TJSONObject`
