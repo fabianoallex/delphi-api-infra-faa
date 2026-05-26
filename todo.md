@@ -4,25 +4,6 @@ Melhorias identificadas nas avaliações do projeto, ordenadas por prioridade e 
 
 ---
 
-## Alta prioridade
-
-### 9. Configuração via variáveis de ambiente / arquivo ini
-
-**Módulo sugerido:** `Common.Config.pas` — `TAppConfig`  
-**Problema:** O DPR hoje hardcodeia host, porta, caminho do banco e senha. Impossível deployar em ambientes distintos sem recompilar.  
-**Solução:** Um `TAppConfig` que leia de variáveis de ambiente com fallback para arquivo `.ini`. Chaves mínimas: `DB_PATH`, `DB_USER`, `DB_PASSWORD`, `SERVER_PORT`, `BASE_URL`.
-
-```pascal
-TAppConfig.Get('DB_PATH', 'C:\api-test\api-test.fdb')   // env var ou fallback
-TAppConfig.GetInt('SERVER_PORT', 9000)
-```
-
----
-
----
-
----
-
 ## Média prioridade
 
 ### 12. Mock de `Db.Interfaces` para testes unitários

@@ -185,16 +185,8 @@ TRouteDoc.Get('/pedidos')
       LDto.Limit   := ParseQueryInt(Req.Query['limit']);
       LDto.Search  := ParseQueryStr(Req.Query['search']);
       LDto.OrderBy := ParseQueryStr(Req.Query['orderBy']);
-      try
-        LResult := AService.Find(LDto);
-      except
-        on E: EOrderByException do
-        begin
-          Res.Status(400).ContentType('application/json').Send('{"error":"'+E.Message+'"}');
-          Exit;
-        end;
-      end;
-      Res.ContentType('application/json')
+      LResult := AService.Find(LDto);
+      Res.ContentType('application/json; charset=utf-8')
          .Send(LResult.Meta.WrapJson(BuildItemsJson(LResult.Items)));
     end);
 
@@ -215,8 +207,8 @@ TRouteDoc.Patch('/pedidos/:id')
   .Register(handler);
 ```
 
-Com `TErrorHandlerMiddleware` registrado (ver "Padrão de inicialização"), o try/except explícito para `EOrderByException` **não é necessário** — o middleware o captura e devolve 400. Manter o try/except é defensivo (defense in depth) mas opcional.
 Para `BuildItemsJson`, ver implementação em `Cidade.Controller` — padrão idêntico.
+`EOrderByException` não precisa ser capturada no handler — o `TErrorHandlerMiddleware` converte automaticamente para 400.
 
 ---
 
@@ -229,19 +221,19 @@ Para `BuildItemsJson`, ver implementação em `Cidade.Controller` — padrão id
 // Montar dependências
 LService := TPedidoService.Create(TPedidoRepository.Create(LFactory));
 
-// Autenticação Bearer (opcional) — paths excluídos passam sem token
-THorse.Use(TAuthMiddleware.Bearer(
-  function(const AToken: string): Boolean
-  begin
-    Result := AToken = TAppConfig.Get('API_KEY', '');
-  end,
-  ['/health', '/swagger']));
+// Health check — fora do Swagger e do MCP (registrar antes dos middlewares)
+THealthCheck.Register(LFactory);
 
-// Middleware de erros — deve vir ANTES de RegisterRoutes
+// Middleware de erros — deve ser o PRIMEIRO: captura exceções de todos os handlers seguintes
 THorse.Use(TErrorHandlerMiddleware.New);
 
-// Health check — fora do Swagger e do MCP
-THealthCheck.Register(LFactory);
+// Autenticação Bearer (opcional) — deve vir APÓS o ErrorHandler
+// THorse.Use(TAuthMiddleware.Bearer(
+//   function(const AToken: string): Boolean
+//   begin
+//     Result := AToken = TAppConfig.Get('API_KEY', '');
+//   end,
+//   ['/health', '/swagger']));
 
 // Swagger (deve vir antes de RegisterRoutes)
 TRouteDoc.Init('Minha API', '1.0.0', 'localhost:9000');
