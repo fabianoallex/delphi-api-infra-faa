@@ -37,6 +37,7 @@ src/
     MCP.Utils.pas             — McpDeriveName, McpMatchesTags (utilitários sem dependência Horse)
   Middleware/
     Horse.Middleware.ErrorHandler.pas — TErrorHandlerMiddleware + hierarquia EHttpException
+    Horse.Middleware.Auth.pas         — TAuthMiddleware: validação Bearer via callback plugável
 tests/
   Unit/         — testes unitários (DUnitX) — Infra.UnitTests.dpr
   Integration/  — testes com banco Firebird real — Infra.IntegrationTests.dpr
@@ -569,6 +570,67 @@ Todos os erros retornam `Content-Type: application/json` com o envelope:
 ```
 
 A mensagem é obtida de `E.Message` da exceção capturada — use mensagens orientadas ao usuário final nas classes `EValidationException`, `ENotFoundException` e `EConflictException`.
+
+---
+
+## Middleware de autenticação
+
+O módulo `Horse.Middleware.Auth` implementa autenticação **Bearer token** com validação plugável. O esquema concreto (API key estática, JWT, HMAC) fica no projeto consumidor via callback — a infra apenas lê o header e delega a decisão.
+
+### Registro
+
+Registre **antes** de `TRouteDoc.Init` e dos `RegisterRoutes`. Paths cujo prefixo esteja em `AExcludedPrefixes` passam sem autenticação — útil para `/health` (load balancers) e `/swagger` (documentação).
+
+```pascal
+uses
+  Horse.Middleware.Auth in 'infra\src\Middleware\Horse.Middleware.Auth.pas';
+
+begin
+  THorse.Use(TAuthMiddleware.Bearer(
+    function(const AToken: string): Boolean
+    begin
+      Result := AToken = TAppConfig.Get('API_KEY', '');
+    end,
+    ['/health', '/swagger']));   // ← prefixos que passam sem token
+
+  TRouteDoc.Init(...);
+  TProdutoController.RegisterRoutes(LService);
+  // ...
+end.
+```
+
+Sem lista de exclusões:
+
+```pascal
+THorse.Use(TAuthMiddleware.Bearer(
+  function(const AToken: string): Boolean
+  begin
+    Result := AToken = TAppConfig.Get('API_KEY', '');
+  end));
+```
+
+### Fluxo de validação
+
+| Situação | Status | Corpo |
+|---|---|---|
+| Path com prefixo excluído | — | passa direto (`Next`) |
+| `Authorization` ausente | 401 | `{"error":"Token de autorização ausente."}` |
+| Header sem `Bearer ` | 401 | `{"error":"Formato inválido. Use: Authorization: Bearer <token>"}` |
+| Validator retorna `False` | 401 | `{"error":"Token inválido ou expirado."}` |
+| Validator retorna `True` | — | passa direto (`Next`) |
+
+### Exemplo de requisição autenticada
+
+```bash
+curl -H "Authorization: Bearer meu-token-secreto" http://localhost:9000/produtos
+```
+
+### Configuração via app.ini
+
+```ini
+[Config]
+API_KEY=meu-token-secreto-aqui
+```
 
 ---
 

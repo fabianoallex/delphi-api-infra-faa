@@ -33,20 +33,6 @@ TAppConfig.GetInt('SERVER_PORT', 9000)
 
 ---
 
-### 13. Middleware de autenticação (API Key ou JWT)
-
-**Módulo sugerido:** `Horse.Middleware.Auth.pas`  
-**Problema:** Não há mecanismo de proteção de rotas — qualquer cliente pode chamar qualquer endpoint, incluindo os MCP.  
-**Solução:** Middleware plugável que valide `Authorization: Bearer <token>` e rejeite com 401. O esquema concreto (JWT, API key estática, HMAC) ficaria no projeto consumidor via callback de validação.
-
-```pascal
-THorse.Use(TAuthMiddleware.Bearer(
-  function(const AToken: string): Boolean
-  begin
-    Result := AToken = TAppConfig.Get('API_KEY');
-  end));
-```
-
 ---
 
 ## Baixa prioridade
@@ -89,6 +75,7 @@ THorse.Use(TAuthMiddleware.Bearer(
 
 ## Concluído
 
+- [x] Item 13 — `Horse.Middleware.Auth.pas`: `TAuthMiddleware.Bearer(AValidator, AExcludedPrefixes)` valida `Authorization: Bearer`; paths com prefixo excluído passam sem autenticação; retorna 401 com JSON para token ausente, formato inválido ou validator retornando False
 - [x] Item 11 — `Common.HealthCheck.pas`: `THealthCheck.Register(AFactory)` registra `GET /health` fora do Swagger e MCP; testa com `IDBFactory.CreateConnection` + `TestConnection`; retorna `{"status":"ok"}` 200 ou `{"status":"degraded","detail":"..."}` 503
 - [x] Item 10 — `Horse.Middleware.ErrorHandler.pas`: middleware `TErrorHandlerMiddleware.New` captura exceções não tratadas; hierarquia `EHttpException` → `EValidationException` (400), `ENotFoundException` (404), `EConflictException` (409); `EOrderByException` mapeada para 400; qualquer outra `Exception` → 500; resposta `{"error":"..."}` com JSON-safe escaping via `TJSONObject`
 - [x] Item 9 — `Common.Config.pas`: `TAppConfig` com leitura de env vars + fallback para `app.ini`; `Api.Test.dpr` atualizado para usar `TAppConfig` em todas as configurações hardcoded

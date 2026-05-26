@@ -229,6 +229,14 @@ Para `BuildItemsJson`, ver implementação em `Cidade.Controller` — padrão id
 // Montar dependências
 LService := TPedidoService.Create(TPedidoRepository.Create(LFactory));
 
+// Autenticação Bearer (opcional) — paths excluídos passam sem token
+THorse.Use(TAuthMiddleware.Bearer(
+  function(const AToken: string): Boolean
+  begin
+    Result := AToken = TAppConfig.Get('API_KEY', '');
+  end,
+  ['/health', '/swagger']));
+
 // Middleware de erros — deve vir ANTES de RegisterRoutes
 THorse.Use(TErrorHandlerMiddleware.New);
 
@@ -299,4 +307,5 @@ TRouteDoc.Get('/operacoes').ToolName('list_operacao')...
 - DPR de referência: `Api.Test.dpr` (na raiz do projeto consumidor)
 - SQL de referência: `sql/CIDADE.FIND.sql`, `sql/CIDADE.FIND_COUNT.sql`
 - Middleware de erros: `src/Middleware/Horse.Middleware.ErrorHandler.pas`
+- Middleware de autenticação: `src/Middleware/Horse.Middleware.Auth.pas`
 - Health check: `src/Common/Common.HealthCheck.pas`
