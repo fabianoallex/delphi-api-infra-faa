@@ -40,6 +40,7 @@ Melhorias identificadas nas avaliações do projeto, ordenadas por prioridade e 
 
 ## Concluído
 
+- [x] Item 14 — `Horse.Middleware.Cors.pas`: `TCorsMiddleware.New` (3 overloads); `TCorsOptions.Default`; AllowOrigin=`*` emite incondicionalmente; origem específica echoa com `Vary: Origin`; preflight `OPTIONS` responde 204 sem chamar Next; suporte a `AllowCredentials`, `MaxAge`, `ExposeHeaders`
 - [x] Item 12 — `Db.Mock.pas`: `TMockDBFactory` implementando `IDBFactory`; `TMockQueryResult` (Empty/SingleRow/MultiRows); `TMockParams` com 56 setters/getters Opt/Null/OptNull; `TMockSQLLoader` retorna chave como SQL (bypass de .res); `TMockExecution` captura snapshot de params; `Db.MockTests.pas` com 4 fixtures DUnitX; `Db.SqlLoader.GetSql` promovido a `protected virtual`
 - [x] Item 13 — `Horse.Middleware.Auth.pas`: `TAuthMiddleware.Bearer(AValidator, AExcludedPrefixes)` valida `Authorization: Bearer`; paths com prefixo excluído passam sem autenticação; retorna 401 com JSON para token ausente, formato inválido ou validator retornando False
 - [x] Item 11 — `Common.HealthCheck.pas`: `THealthCheck.Register(AFactory)` registra `GET /health` fora do Swagger e MCP; testa com `IDBFactory.CreateConnection` + `TestConnection`; retorna `{"status":"ok"}` 200 ou `{"status":"degraded","detail":"..."}` 503

@@ -227,6 +227,10 @@ THealthCheck.Register(LFactory);
 // Middleware de erros — deve ser o PRIMEIRO: captura exceções de todos os handlers seguintes
 THorse.Use(TErrorHandlerMiddleware.New);
 
+// CORS (opcional) — deve vir APÓS o ErrorHandler; antes de RegisterRoutes
+// THorse.Use(TCorsMiddleware.New);                          // dev: libera *
+// THorse.Use(TCorsMiddleware.New('https://app.example.com')); // produção
+
 // Autenticação Bearer (opcional) — deve vir APÓS o ErrorHandler
 // THorse.Use(TAuthMiddleware.Bearer(
 //   function(const AToken: string): Boolean
@@ -343,4 +347,5 @@ end;
 - SQL de referência: `sql/CIDADE.FIND.sql`, `sql/CIDADE.FIND_COUNT.sql`
 - Middleware de erros: `src/Middleware/Horse.Middleware.ErrorHandler.pas`
 - Middleware de autenticação: `src/Middleware/Horse.Middleware.Auth.pas`
+- Middleware CORS: `src/Middleware/Horse.Middleware.Cors.pas`
 - Health check: `src/Common/Common.HealthCheck.pas`
