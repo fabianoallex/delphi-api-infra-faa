@@ -19,16 +19,6 @@ TAppConfig.GetInt('SERVER_PORT', 9000)
 
 ---
 
-### 10. Middleware de tratamento de erros
-
-**Módulo sugerido:** `Horse.Middleware.ErrorHandler.pas`  
-**Problema:** Cada controller duplica `try/except → Res.Status(500)`. Exceções não capturadas expõem stack traces na resposta.  
-**Solução:** Middleware Horse que capture exceções não tratadas e devolva JSON padronizado com o status correto. Exceções de domínio mapeadas para 4xx; qualquer outra → 500.
-
-```json
-{ "error": "Nome é obrigatório." }
-```
-
 ---
 
 ### 11. Health check endpoint
@@ -105,6 +95,7 @@ THorse.Use(TAuthMiddleware.Bearer(
 
 ## Concluído
 
+- [x] Item 10 — `Horse.Middleware.ErrorHandler.pas`: middleware `TErrorHandlerMiddleware.New` captura exceções não tratadas; hierarquia `EHttpException` → `EValidationException` (400), `ENotFoundException` (404), `EConflictException` (409); `EOrderByException` mapeada para 400; qualquer outra `Exception` → 500; resposta `{"error":"..."}` com JSON-safe escaping via `TJSONObject`
 - [x] Item 9 — `Common.Config.pas`: `TAppConfig` com leitura de env vars + fallback para `app.ini`; `Api.Test.dpr` atualizado para usar `TAppConfig` em todas as configurações hardcoded
 
 - [x] Item 1 — Descriptions ricas: `BuildDescription` combina Summary + `.Descr()` + "Returns: field (type, desc)..." auto-gerado do schema de resposta

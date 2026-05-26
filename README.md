@@ -34,6 +34,8 @@ src/
   MCP/
     MCP.Server.pas            — TMcpServer: expõe rotas do TSwagDoc como tools MCP (HTTP JSON-RPC 2.0)
     MCP.Utils.pas             — McpDeriveName, McpMatchesTags (utilitários sem dependência Horse)
+  Middleware/
+    Horse.Middleware.ErrorHandler.pas — TErrorHandlerMiddleware + hierarquia EHttpException
 tests/
   Unit/         — testes unitários (DUnitX) — Infra.UnitTests.dpr
   Integration/  — testes com banco Firebird real — Infra.IntegrationTests.dpr
@@ -76,7 +78,7 @@ git commit -m "chore: atualiza infra"
 Adicione ao `DCC_UnitSearchPath` do seu `.dproj`:
 
 ```
-infra\src\Common;infra\src\Db;infra\src\Swagger;infra\src\MCP;infra\modules\swag-doc\Source
+infra\src\Common;infra\src\Db;infra\src\Swagger;infra\src\MCP;infra\src\Middleware;infra\modules\swag-doc\Source
 ```
 
 ### 2. Referências explícitas no DPR
@@ -100,7 +102,9 @@ uses
   Swagger.Builder      in 'infra\src\Swagger\Swagger.Builder.pas',
   Swagger.Server       in 'infra\src\Swagger\Swagger.Server.pas',
   // MCP (opcional — incluir apenas se o projeto expõe tools MCP)
-  MCP.Server           in 'infra\src\MCP\MCP.Server.pas';
+  MCP.Server           in 'infra\src\MCP\MCP.Server.pas',
+  // Middleware (opcional — incluir conforme necessário)
+  Horse.Middleware.ErrorHandler in 'infra\src\Middleware\Horse.Middleware.ErrorHandler.pas';
 ```
 
 ### 3. Units FireDAC obrigatórias
@@ -457,6 +461,70 @@ Schema gerado:
 ```
 
 No `inputSchema` MCP, o campo `additionalProperties: false` é adicionado automaticamente a todo schema gerado.
+
+---
+
+## Middleware de tratamento de erros
+
+O módulo `Horse.Middleware.ErrorHandler` centraliza o tratamento de exceções não capturadas. Sem ele, cada controller precisa de um `try/except` próprio, e exceções inesperadas chegam ao cliente como `500` sem corpo JSON.
+
+### Registro
+
+Chame `THorse.Use` **antes** de registrar as rotas:
+
+```pascal
+uses
+  Horse.Middleware.ErrorHandler in 'infra\src\Middleware\Horse.Middleware.ErrorHandler.pas';
+
+begin
+  THorse.Use(TErrorHandlerMiddleware.New);   // ← antes de qualquer RegisterRoutes
+  TRouteDoc.Init('Minha API', '1.0.0', 'localhost:9000');
+  TProdutoController.RegisterRoutes(LService);
+  // ...
+  TRouteDoc.Serve('/swagger');
+  THorse.Listen(9000);
+end.
+```
+
+### Hierarquia de exceções
+
+Lance a classe correta no Service ou Repository — o middleware converte automaticamente para o status HTTP correspondente:
+
+| Classe | Status | Quando usar |
+|---|---|---|
+| `EValidationException` | 400 | Campo inválido, regra de negócio violada |
+| `ENotFoundException` | 404 | Registro não encontrado pelo ID informado |
+| `EConflictException` | 409 | Violação de unicidade, estado incompatível |
+| `EOrderByException` | 400 | Ordenação por campo não permitido (gerada internamente pelo `TOrderBySpec`) |
+| `EHttpException` | custom | Qualquer outro status — `EHttpException.Create(status, msg)` |
+| `Exception` | 500 | Qualquer exceção não mapeada |
+
+```pascal
+// No Service:
+function TProdutoService.FindById(AId: Integer): IProdutoResponseDTO;
+begin
+  Result := FRepository.FindById(AId);
+  if not Assigned(Result) then
+    raise ENotFoundException.Create('Produto não encontrado.');
+end;
+
+procedure TProdutoService.Insert(ADto: IProdutoInsertDTO);
+begin
+  if Trim(ADto.Nome.Value) = '' then
+    raise EValidationException.Create('Nome é obrigatório.');
+  // ...
+end;
+```
+
+### Formato da resposta de erro
+
+Todos os erros retornam `Content-Type: application/json` com o envelope:
+
+```json
+{ "error": "mensagem descritiva" }
+```
+
+A mensagem é obtida de `E.Message` da exceção capturada — use mensagens orientadas ao usuário final nas classes `EValidationException`, `ENotFoundException` e `EConflictException`.
 
 ---
 

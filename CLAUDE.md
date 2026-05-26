@@ -215,7 +215,7 @@ TRouteDoc.Patch('/pedidos/:id')
   .Register(handler);
 ```
 
-Sempre capturar `EOrderByException` no handler do GET de listagem.
+Com `TErrorHandlerMiddleware` registrado (ver "Padrão de inicialização"), o try/except explícito para `EOrderByException` **não é necessário** — o middleware o captura e devolve 400. Manter o try/except é defensivo (defense in depth) mas opcional.
 Para `BuildItemsJson`, ver implementação em `Cidade.Controller` — padrão idêntico.
 
 ---
@@ -228,6 +228,9 @@ Para `BuildItemsJson`, ver implementação em `Cidade.Controller` — padrão id
 
 // Montar dependências
 LService := TPedidoService.Create(TPedidoRepository.Create(LFactory));
+
+// Middleware de erros — deve vir ANTES de RegisterRoutes
+THorse.Use(TErrorHandlerMiddleware.New);
 
 // Swagger (deve vir antes de RegisterRoutes)
 TRouteDoc.Init('Minha API', '1.0.0', 'localhost:9000');
@@ -281,6 +284,7 @@ TRouteDoc.Get('/operacoes').ToolName('list_operacao')...
 - `IOptional.Value` sem checar `HasValue` antes
 - Chamar `LResult.Next` antes de checar `LResult.IsEmpty` — o padrão correto é `while not LResult.Eof`
 - Registrar `TMcpServer` após `TRouteDoc.Serve` — o doc já foi liberado
+- Lançar `Exception` genérica para erros de domínio — use as classes tipadas: `EValidationException` (400), `ENotFoundException` (404), `EConflictException` (409); o middleware converte automaticamente para o status correto
 
 ---
 
@@ -291,3 +295,4 @@ TRouteDoc.Get('/operacoes').ToolName('list_operacao')...
 - Repository de referência (paginação): `src/Domain/Cidade/Cidade.Repository.pas`
 - DPR de referência: `Api.Test.dpr` (na raiz do projeto consumidor)
 - SQL de referência: `sql/CIDADE.FIND.sql`, `sql/CIDADE.FIND_COUNT.sql`
+- Middleware de erros: `src/Middleware/Horse.Middleware.ErrorHandler.pas`
