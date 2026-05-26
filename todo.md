@@ -24,13 +24,6 @@ Melhorias identificadas nas avaliações do projeto, ordenadas por prioridade e 
 
 ---
 
-### 7. Estratégia de versionamento de tools MCP
-
-**Quando:** Antes de ter consumidores externos em produção.  
-**Regra:** Campos novos sempre opcionais (non-breaking). Para mudanças breaking, manter versão antiga por período de deprecação antes de remover.
-
----
-
 ## Concluído
 
 - [x] Item 15 — `Horse.Middleware.RateLimit.pas`: sliding window por IP (X-Forwarded-For + RemoteAddr) ou chave customizável via `TRateLimitKeyExtractor`; retorna 429 + `Retry-After`; headers `X-RateLimit-Limit/Remaining/Reset` em todas as respostas; estado thread-safe em memória (IRateLimitState com TCriticalSection); auto-free via ARC na closure
