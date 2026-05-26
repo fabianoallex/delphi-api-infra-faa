@@ -36,6 +36,7 @@ src/
     MCP.Server.pas            — TMcpServer: expõe rotas do TSwagDoc como tools MCP (HTTP JSON-RPC 2.0)
     MCP.Utils.pas             — McpDeriveName, McpMatchesTags (utilitários sem dependência Horse)
   Middleware/
+    Horse.Middleware.Logger.pas       — TLoggerMiddleware: logging de requisições com callback plugável
     Horse.Middleware.ErrorHandler.pas — TErrorHandlerMiddleware + hierarquia EHttpException
     Horse.Middleware.Auth.pas         — TAuthMiddleware: validação Bearer via callback plugável
     Horse.Middleware.Cors.pas         — TCorsMiddleware: headers CORS configuráveis por origem
@@ -110,6 +111,7 @@ uses
   // MCP (opcional — incluir apenas se o projeto expõe tools MCP)
   MCP.Server           in 'infra\src\MCP\MCP.Server.pas',
   // Middleware (opcional — incluir conforme necessário)
+  Horse.Middleware.Logger       in 'infra\src\Middleware\Horse.Middleware.Logger.pas',
   Horse.Middleware.ErrorHandler in 'infra\src\Middleware\Horse.Middleware.ErrorHandler.pas',
   Horse.Middleware.Auth         in 'infra\src\Middleware\Horse.Middleware.Auth.pas',
   Horse.Middleware.Cors         in 'infra\src\Middleware\Horse.Middleware.Cors.pas',
@@ -638,6 +640,50 @@ curl -H "Authorization: Bearer meu-token-secreto" http://localhost:9000/produtos
 [Config]
 API_KEY=meu-token-secreto-aqui
 ```
+
+---
+
+## Middleware de logging
+
+O módulo `Horse.Middleware.Logger` registra cada requisição recebida no formato:
+
+```
+[2025-01-01 12:00:00] GET /pedidos 200 12ms 192.168.1.1
+```
+
+### Ordem de registro
+
+Deve ser o **primeiro** middleware registrado para capturar o status correto inclusive de respostas de erro (4xx/5xx) geradas pelo `TErrorHandlerMiddleware`:
+
+```pascal
+THorse.Use(TLoggerMiddleware.New);          // PRIMEIRO
+THorse.Use(TErrorHandlerMiddleware.New);    // segundo
+```
+
+### Uso
+
+```pascal
+// Console (padrão — Writeln)
+THorse.Use(TLoggerMiddleware.New);
+
+// Callback customizado
+THorse.Use(TLoggerMiddleware.New(
+  procedure(const ALine: string)
+  begin
+    TMyLogger.Info(ALine);      // arquivo, syslog, ElasticSearch, etc.
+  end));
+```
+
+### Campos registrados
+
+| Campo | Exemplo | Descrição |
+|---|---|---|
+| Timestamp | `[2025-01-01 12:00:00]` | Data/hora local da requisição |
+| Método | `GET` | Método HTTP |
+| Path | `/pedidos/123` | Caminho da URL (sem query string) |
+| Status | `200` | Código HTTP da resposta |
+| Duração | `12ms` | Tempo de processamento via `TStopwatch` |
+| IP | `192.168.1.1` | Primeiro IP do `X-Forwarded-For` ou `RemoteAddr` |
 
 ---
 

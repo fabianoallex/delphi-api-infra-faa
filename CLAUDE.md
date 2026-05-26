@@ -224,7 +224,12 @@ LService := TPedidoService.Create(TPedidoRepository.Create(LFactory));
 // Health check — fora do Swagger e do MCP (registrar antes dos middlewares)
 THealthCheck.Register(LFactory);
 
-// Middleware de erros — deve ser o PRIMEIRO: captura exceções de todos os handlers seguintes
+// Logger (opcional) — deve ser o PRIMEIRO: envolve todos os outros middlewares
+// para capturar o status correto mesmo em respostas de erro
+// THorse.Use(TLoggerMiddleware.New);                         // console
+// THorse.Use(TLoggerMiddleware.New(procedure(const S: string) begin ... end));
+
+// Middleware de erros — deve vir APÓS o Logger; captura exceções de todos os handlers seguintes
 THorse.Use(TErrorHandlerMiddleware.New);
 
 // Rate limiting (opcional) — deve vir APÓS o ErrorHandler; antes de RegisterRoutes
@@ -348,6 +353,7 @@ end;
 - Repository de referência (paginação): `src/Domain/Cidade/Cidade.Repository.pas`
 - DPR de referência: `Api.Test.dpr` (na raiz do projeto consumidor)
 - SQL de referência: `sql/CIDADE.FIND.sql`, `sql/CIDADE.FIND_COUNT.sql`
+- Middleware de logging: `src/Middleware/Horse.Middleware.Logger.pas`
 - Middleware de erros: `src/Middleware/Horse.Middleware.ErrorHandler.pas`
 - Middleware de autenticação: `src/Middleware/Horse.Middleware.Auth.pas`
 - Middleware CORS: `src/Middleware/Horse.Middleware.Cors.pas`
