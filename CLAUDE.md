@@ -351,6 +351,7 @@ end;
 - DTO completo de referência: `src/Domain/Cidade/Cidade.DTOs.pas`
 - Controller de referência: `src/Domain/Cidade/Cidade.Controller.pas`
 - Repository de referência (paginação): `src/Domain/Cidade/Cidade.Repository.pas`
+- Template de projeto novo: https://github.com/fabianoallex/delphi-api-starter (domínio Exemplo completo, submodules pré-configurados)
 - DPR de referência: `Api.Test.dpr` (na raiz do projeto consumidor)
 - SQL de referência: `sql/CIDADE.FIND.sql`, `sql/CIDADE.FIND_COUNT.sql`
 - Middleware de logging: `src/Middleware/Horse.Middleware.Logger.pas`

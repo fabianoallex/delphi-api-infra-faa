@@ -50,6 +50,22 @@ tests/
 
 ---
 
+## Começando um novo projeto
+
+Use o template [delphi-api-starter](https://github.com/fabianoallex/delphi-api-starter) para iniciar um projeto já configurado com esta biblioteca.
+
+O template inclui: submodules `infra/` e `modules/horse/` pré-configurados, domínio `Exemplo` funcional (CRUD completo com paginação, busca e ordenação), migração inicial, todos os middlewares registrados e Swagger + MCP prontos. Basta clonar e renomear o domínio.
+
+```bash
+# Via GitHub (recomendado — clique em "Use this template" no GitHub, depois clone):
+git clone --recurse-submodules https://github.com/seu-usuario/meu-projeto
+
+# Ou clone diretamente o template como ponto de partida:
+git clone --recurse-submodules https://github.com/fabianoallex/delphi-api-starter meu-projeto
+```
+
+---
+
 ## Usando como submodule
 
 ### Adicionar ao seu projeto
