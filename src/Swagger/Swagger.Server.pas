@@ -50,7 +50,7 @@ begin
   THorse.Get(LDocUrl,
     procedure(Req: THorseRequest; Res: THorseResponse; Next: TNextProc)
     begin
-      Res.ContentType('application/json').Send(LJsonStr);
+      Res.ContentType('application/json; charset=utf-8').Send(LJsonStr);
     end);
 
   THorse.Get(ABasePath,

@@ -122,7 +122,7 @@ begin
       LJson := TJSONObject.Create;
       try
         LJson.AddPair('error', LMessage);
-        Res.Status(LStatus).ContentType('application/json').Send(LJson.ToJSON);
+        Res.Status(LStatus).ContentType('application/json; charset=utf-8').Send(LJson.ToJSON);
       finally
         LJson.Free;
       end;
