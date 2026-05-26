@@ -227,6 +227,9 @@ THealthCheck.Register(LFactory);
 // Middleware de erros — deve ser o PRIMEIRO: captura exceções de todos os handlers seguintes
 THorse.Use(TErrorHandlerMiddleware.New);
 
+// Rate limiting (opcional) — deve vir APÓS o ErrorHandler; antes de RegisterRoutes
+// THorse.Use(TRateLimitMiddleware.New(60, 60));   // 60 req/min por IP
+
 // CORS (opcional) — deve vir APÓS o ErrorHandler; antes de RegisterRoutes
 // THorse.Use(TCorsMiddleware.New);                          // dev: libera *
 // THorse.Use(TCorsMiddleware.New('https://app.example.com')); // produção
@@ -348,4 +351,5 @@ end;
 - Middleware de erros: `src/Middleware/Horse.Middleware.ErrorHandler.pas`
 - Middleware de autenticação: `src/Middleware/Horse.Middleware.Auth.pas`
 - Middleware CORS: `src/Middleware/Horse.Middleware.Cors.pas`
+- Middleware rate limiting: `src/Middleware/Horse.Middleware.RateLimit.pas`
 - Health check: `src/Common/Common.HealthCheck.pas`
