@@ -24,13 +24,6 @@ Melhorias identificadas nas avaliações do projeto, ordenadas por prioridade e 
 
 ---
 
-### 16. Campos de auditoria (created_at / updated_at)
-
-**Quando:** Domínios que precisam de rastreabilidade de alterações.  
-**Solução:** Mixin ou base class para Repository que gerencie automaticamente `CREATED_AT` e `UPDATED_AT` via trigger ou no INSERT/UPDATE.
-
----
-
 ### 7. Estratégia de versionamento de tools MCP
 
 **Quando:** Antes de ter consumidores externos em produção.  
