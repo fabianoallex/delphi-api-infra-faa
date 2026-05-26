@@ -38,6 +38,10 @@ src/
   Middleware/
     Horse.Middleware.ErrorHandler.pas — TErrorHandlerMiddleware + hierarquia EHttpException
     Horse.Middleware.Auth.pas         — TAuthMiddleware: validação Bearer via callback plugável
+    Horse.Middleware.Cors.pas         — TCorsMiddleware: headers CORS configuráveis por origem
+    Horse.Middleware.RateLimit.pas    — TRateLimitMiddleware: sliding window por IP ou chave customizável
+  Db/ (extras para testes)
+    Db.Mock.pas                       — TMockDBFactory: mock in-memory de IDBFactory para testes unitários
 tests/
   Unit/         — testes unitários (DUnitX) — Infra.UnitTests.dpr
   Integration/  — testes com banco Firebird real — Infra.IntegrationTests.dpr
@@ -106,7 +110,10 @@ uses
   // MCP (opcional — incluir apenas se o projeto expõe tools MCP)
   MCP.Server           in 'infra\src\MCP\MCP.Server.pas',
   // Middleware (opcional — incluir conforme necessário)
-  Horse.Middleware.ErrorHandler in 'infra\src\Middleware\Horse.Middleware.ErrorHandler.pas';
+  Horse.Middleware.ErrorHandler in 'infra\src\Middleware\Horse.Middleware.ErrorHandler.pas',
+  Horse.Middleware.Auth         in 'infra\src\Middleware\Horse.Middleware.Auth.pas',
+  Horse.Middleware.Cors         in 'infra\src\Middleware\Horse.Middleware.Cors.pas',
+  Horse.Middleware.RateLimit    in 'infra\src\Middleware\Horse.Middleware.RateLimit.pas';
 ```
 
 ### 3. Units FireDAC obrigatórias
@@ -630,6 +637,113 @@ curl -H "Authorization: Bearer meu-token-secreto" http://localhost:9000/produtos
 ```ini
 [Config]
 API_KEY=meu-token-secreto-aqui
+```
+
+---
+
+## Middleware CORS
+
+O módulo `Horse.Middleware.Cors` emite os headers `Access-Control-Allow-*` necessários para que browsers (SPAs, dashboards) possam consumir a API de origens diferentes.
+
+### Registro
+
+Registre **após** `TErrorHandlerMiddleware` e **antes** de `RegisterRoutes`:
+
+```pascal
+uses
+  Horse.Middleware.Cors in 'infra\src\Middleware\Horse.Middleware.Cors.pas';
+
+// Desenvolvimento — libera qualquer origem
+THorse.Use(TCorsMiddleware.New);
+
+// Produção — origem única
+THorse.Use(TCorsMiddleware.New('https://app.example.com'));
+
+// Configuração completa
+var LCors := TCorsOptions.Default;
+LCors.AllowOrigin      := 'https://app.example.com';
+LCors.AllowCredentials := True;
+LCors.ExposeHeaders    := 'X-Total-Count';
+THorse.Use(TCorsMiddleware.New(LCors));
+```
+
+### Comportamento
+
+| Situação | Ação |
+|---|---|
+| `AllowOrigin = '*'` | Emite `Access-Control-Allow-Origin: *` incondicionalmente |
+| Origem específica e `Origin` bate | Ecoa a origem e adiciona `Vary: Origin` |
+| Origem específica e `Origin` não bate | Nenhum header CORS emitido |
+| Método `OPTIONS` (preflight) | Responde 204 sem chamar `Next` |
+
+### Campos de `TCorsOptions`
+
+| Campo | Padrão | Descrição |
+|---|---|---|
+| `AllowOrigin` | `*` | Origem permitida; `*` ou URL exata |
+| `AllowMethods` | `GET,POST,PUT,PATCH,DELETE,OPTIONS` | Métodos aceitos |
+| `AllowHeaders` | `Content-Type,Authorization` | Headers aceitos |
+| `AllowCredentials` | `False` | Cookies/credenciais — requer origem exata (não `*`) |
+| `MaxAge` | `86400` | Segundos de cache do preflight no browser |
+| `ExposeHeaders` | `''` | Headers de resposta extras expostos ao JavaScript |
+
+---
+
+## Middleware de rate limiting
+
+O módulo `Horse.Middleware.RateLimit` limita o número de requisições por janela de tempo usando **sliding window**. Protege endpoints públicos e endpoints MCP de uso excessivo por clientes ou agentes externos.
+
+### Registro
+
+Registre **após** `TErrorHandlerMiddleware` e **antes** de `RegisterRoutes`:
+
+```pascal
+uses
+  Horse.Middleware.RateLimit in 'infra\src\Middleware\Horse.Middleware.RateLimit.pas';
+
+// 60 requisições por minuto por IP (padrão)
+THorse.Use(TRateLimitMiddleware.New(60, 60));
+
+// 1000 requisições por hora por IP
+THorse.Use(TRateLimitMiddleware.New(1000, 3600));
+
+// Por API key com configuração completa
+var LOptions := TRateLimitOptions.Default;
+LOptions.Limit         := 200;
+LOptions.WindowSeconds := 60;
+LOptions.KeyExtractor  :=
+  function(Req: THorseRequest): string
+  begin
+    Result := Req.Headers['X-Api-Key'];
+    if Result.IsEmpty then Result := 'anonymous';
+  end;
+THorse.Use(TRateLimitMiddleware.New(LOptions));
+```
+
+### Comportamento
+
+- **Chave padrão:** IP do cliente — lê `X-Forwarded-For` primeiro (proxies/load balancers), depois `RemoteAddr`
+- **Sliding window:** timestamps por chave em memória; entradas expiradas removidas a cada requisição
+- **Thread-safe:** `TCriticalSection` por instância de middleware; estado gerenciado por interface (auto-free via ARC)
+
+### Headers emitidos em todas as respostas
+
+| Header | Conteúdo |
+|---|---|
+| `X-RateLimit-Limit` | Limite configurado |
+| `X-RateLimit-Remaining` | Requisições restantes na janela atual |
+| `X-RateLimit-Reset` | Unix timestamp de quando a janela redefine |
+
+### Resposta ao exceder o limite
+
+```
+HTTP/1.1 429 Too Many Requests
+Retry-After: 42
+X-RateLimit-Limit: 60
+X-RateLimit-Remaining: 0
+X-RateLimit-Reset: 1748304000
+
+{"error":"Rate limit excedido. Tente novamente em 42 segundo(s)."}
 ```
 
 ---
