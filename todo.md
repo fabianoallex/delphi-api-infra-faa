@@ -21,12 +21,6 @@ TAppConfig.GetInt('SERVER_PORT', 9000)
 
 ---
 
-### 11. Health check endpoint
-
-**Módulo sugerido:** `Common.HealthCheck.pas` ou parte do `Swagger.Server`  
-**Problema:** Sem endpoint de saúde, load balancers e orquestradores (Docker, k8s) não sabem se a instância está operacional.  
-**Solução:** `GET /health` que verifica conectividade com o banco e retorna `{"status":"ok"}` (200) ou `{"status":"degraded","detail":"..."}` (503).
-
 ---
 
 ## Média prioridade
@@ -95,6 +89,7 @@ THorse.Use(TAuthMiddleware.Bearer(
 
 ## Concluído
 
+- [x] Item 11 — `Common.HealthCheck.pas`: `THealthCheck.Register(AFactory)` registra `GET /health` fora do Swagger e MCP; testa com `IDBFactory.CreateConnection` + `TestConnection`; retorna `{"status":"ok"}` 200 ou `{"status":"degraded","detail":"..."}` 503
 - [x] Item 10 — `Horse.Middleware.ErrorHandler.pas`: middleware `TErrorHandlerMiddleware.New` captura exceções não tratadas; hierarquia `EHttpException` → `EValidationException` (400), `ENotFoundException` (404), `EConflictException` (409); `EOrderByException` mapeada para 400; qualquer outra `Exception` → 500; resposta `{"error":"..."}` com JSON-safe escaping via `TJSONObject`
 - [x] Item 9 — `Common.Config.pas`: `TAppConfig` com leitura de env vars + fallback para `app.ini`; `Api.Test.dpr` atualizado para usar `TAppConfig` em todas as configurações hardcoded
 

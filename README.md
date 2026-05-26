@@ -18,6 +18,7 @@ src/
     Common.OrderBy.pas        — TOrderBySpec: ordenação segura com whitelist, tiebreaker e DocHint
     Common.Pagination.pas     — TPageMeta, TPageParams: paginação padronizada com WrapJson
     Common.Config.pas         — TAppConfig: leitura de env vars com fallback para app.ini
+    Common.HealthCheck.pas    — THealthCheck: registra GET /health com verificação de banco
   Db/
     Db.Interfaces.pas         — IDBConnection, IDBConnectionPool, ITransaction, IQuery, IMigrationDialect
     Db.Connection.Pool.pas    — TConnectionPool thread-safe com timeout e inatividade
@@ -461,6 +462,49 @@ Schema gerado:
 ```
 
 No `inputSchema` MCP, o campo `additionalProperties: false` é adicionado automaticamente a todo schema gerado.
+
+---
+
+## Health check
+
+O módulo `Common.HealthCheck` registra um endpoint `GET /health` diretamente no Horse, **fora do Swagger e do MCP**. Isso evita que o endpoint apareça na documentação da API ou vire uma tool MCP.
+
+A verificação cria uma conexão temporária via `IDBFactory.CreateConnection`, chama `TestConnection`, e a descarta — sem consumir conexões do pool.
+
+### Registro
+
+Chame após criar a factory e antes de `TRouteDoc.Init`:
+
+```pascal
+uses
+  Common.HealthCheck in 'infra\src\Common\Common.HealthCheck.pas';
+
+begin
+  LFactory := TFDFactory.Create(LConfig, nil);
+  THealthCheck.Register(LFactory);          // ← GET /health
+  THorse.Use(TErrorHandlerMiddleware.New);
+  TRouteDoc.Init(...);
+  // ...
+end.
+```
+
+### Respostas
+
+| Situação | Status | Corpo |
+|---|---|---|
+| Banco acessível | 200 | `{"status":"ok"}` |
+| Falha de conexão / timeout | 503 | `{"status":"degraded","detail":"<mensagem>"}` |
+
+```bash
+curl http://localhost:9000/health
+# {"status":"ok"}
+```
+
+O path padrão é `/health`. Para usar outro:
+
+```pascal
+THealthCheck.Register(LFactory, '/status');
+```
 
 ---
 

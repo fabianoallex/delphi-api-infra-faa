@@ -232,6 +232,9 @@ LService := TPedidoService.Create(TPedidoRepository.Create(LFactory));
 // Middleware de erros — deve vir ANTES de RegisterRoutes
 THorse.Use(TErrorHandlerMiddleware.New);
 
+// Health check — fora do Swagger e do MCP
+THealthCheck.Register(LFactory);
+
 // Swagger (deve vir antes de RegisterRoutes)
 TRouteDoc.Init('Minha API', '1.0.0', 'localhost:9000');
 
@@ -296,3 +299,4 @@ TRouteDoc.Get('/operacoes').ToolName('list_operacao')...
 - DPR de referência: `Api.Test.dpr` (na raiz do projeto consumidor)
 - SQL de referência: `sql/CIDADE.FIND.sql`, `sql/CIDADE.FIND_COUNT.sql`
 - Middleware de erros: `src/Middleware/Horse.Middleware.ErrorHandler.pas`
+- Health check: `src/Common/Common.HealthCheck.pas`
