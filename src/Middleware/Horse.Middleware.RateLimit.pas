@@ -4,6 +4,7 @@ interface
 
 uses
   Horse.Callback,
+  Horse.Request,
   Common.RateLimitState;
 
 type
