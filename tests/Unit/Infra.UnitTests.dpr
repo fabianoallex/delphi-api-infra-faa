@@ -26,6 +26,7 @@ uses
   ClockCacheTests in 'ClockCacheTests.pas',
   OptionalsTests in 'OptionalsTests.pas',
   Db.Mock in '..\..\src\Db\Db.Mock.pas',
+  Horse.Middleware.RateLimit in '..\..\src\Middleware\Horse.Middleware.RateLimit.pas',
   Db.PoolTests in 'Db.PoolTests.pas',
   Db.SqlLoaderTests in 'Db.SqlLoaderTests.pas',
   Db.MockTests in 'Db.MockTests.pas',
@@ -33,7 +34,8 @@ uses
   Common.OrderByTests in 'Common.OrderByTests.pas',
   Common.PaginationTests in 'Common.PaginationTests.pas',
   MCP.UtilsTests in 'MCP.UtilsTests.pas',
-  Common.ConfigTests in 'Common.ConfigTests.pas';
+  Common.ConfigTests in 'Common.ConfigTests.pas',
+  RateLimitTests in 'RateLimitTests.pas';
 
 var
   runner: ITestRunner;

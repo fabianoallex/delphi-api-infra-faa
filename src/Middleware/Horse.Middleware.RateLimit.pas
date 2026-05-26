@@ -3,6 +3,8 @@ unit Horse.Middleware.RateLimit;
 interface
 
 uses
+  System.Generics.Collections,
+  System.SyncObjs,
   Horse.Callback;
 
 type
@@ -19,6 +21,26 @@ type
     /// Padrão: IP do cliente (X-Forwarded-For, depois RemoteAddr).
     KeyExtractor: TRateLimitKeyExtractor;
     class function Default: TRateLimitOptions; static;
+  end;
+
+  /// Interface do estado da janela deslizante. Exposta para permitir testes unitários.
+  IRateLimitState = interface
+    ['{4A2E8F1C-9B3D-4C7A-8E5F-1D6A2B3C4D5E}']
+    procedure CheckAndRecord(const AKey: string; ALimit, AWindowSeconds: Integer;
+      out ARemaining: Integer; out AResetUnix: Int64; out AExceeded: Boolean);
+  end;
+
+  /// Implementação in-memory da janela deslizante. Thread-safe via TCriticalSection.
+  /// Usa TClock.Now para permitir injeção de clock em testes.
+  TRateLimitState = class(TInterfacedObject, IRateLimitState)
+  private
+    FLock:    TCriticalSection;
+    FBuckets: TObjectDictionary<string, TList<TDateTime>>;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    procedure CheckAndRecord(const AKey: string; ALimit, AWindowSeconds: Integer;
+      out ARemaining: Integer; out AResetUnix: Int64; out AExceeded: Boolean);
   end;
 
   /// Middleware de rate limiting com janela deslizante (sliding window).
@@ -62,26 +84,8 @@ uses
   System.DateUtils,
   System.Math,
   System.JSON,
-  System.Generics.Collections,
-  System.SyncObjs,
+  Common.SystemContext,
   Horse;
-
-type
-  IRateLimitState = interface
-    procedure CheckAndRecord(const AKey: string; ALimit, AWindowSeconds: Integer;
-      out ARemaining: Integer; out AResetUnix: Int64; out AExceeded: Boolean);
-  end;
-
-  TRateLimitState = class(TInterfacedObject, IRateLimitState)
-  private
-    FLock:    TCriticalSection;
-    FBuckets: TObjectDictionary<string, TList<TDateTime>>;
-  public
-    constructor Create;
-    destructor Destroy; override;
-    procedure CheckAndRecord(const AKey: string; ALimit, AWindowSeconds: Integer;
-      out ARemaining: Integer; out AResetUnix: Int64; out AExceeded: Boolean);
-  end;
 
 function ExtractClientIP(Req: THorseRequest): string;
 var
@@ -135,7 +139,7 @@ var
   LNow:         TDateTime;
   LWindowStart: TDateTime;
 begin
-  LNow         := Now;
+  LNow         := TClock.Now;
   LWindowStart := LNow - AWindowSeconds / SecsPerDay;
 
   FLock.Enter;
@@ -146,7 +150,7 @@ begin
       FBuckets.Add(AKey, LBucket);
     end;
 
-    // Lista está em ordem crescente — remove entradas expiradas pela frente
+    // Lista em ordem crescente — remove entradas expiradas pela frente
     while (LBucket.Count > 0) and (LBucket[0] < LWindowStart) do
       LBucket.Delete(0);
 
@@ -212,7 +216,7 @@ begin
         Exit;
       end;
 
-      LRetryAfter := LResetUnix - DateTimeToUnix(Now, False);
+      LRetryAfter := LResetUnix - DateTimeToUnix(TClock.Now, False);
       if LRetryAfter < 0 then LRetryAfter := 0;
 
       Res.AddHeader('Retry-After', IntToStr(LRetryAfter));
