@@ -26,7 +26,7 @@ uses
   ClockCacheTests in 'ClockCacheTests.pas',
   OptionalsTests in 'OptionalsTests.pas',
   Db.Mock in '..\..\src\Db\Db.Mock.pas',
-  Horse.Middleware.RateLimit in '..\..\src\Middleware\Horse.Middleware.RateLimit.pas',
+  Common.RateLimitState in '..\..\src\Common\Common.RateLimitState.pas',
   Db.PoolTests in 'Db.PoolTests.pas',
   Db.SqlLoaderTests in 'Db.SqlLoaderTests.pas',
   Db.MockTests in 'Db.MockTests.pas',

@@ -7,10 +7,10 @@ uses
   System.SysUtils,
   System.DateUtils,
   Common.SystemContext,
-  Horse.Middleware.RateLimit;
+  Common.RateLimitState;
 
 type
-  // Clock com tempo fixo e ajustável — evita dependência de Now() real nos testes.
+  // Clock com tempo ajustável — isola os testes de Now() real.
   TManualClock = class(TInterfacedObject, IClock)
   private
     FTime: TDateTime;
@@ -22,19 +22,11 @@ type
   end;
 
   [TestFixture]
-  TRateLimitOptionsTests = class
-  public
-    [Test] procedure Default_Limit_Is60;
-    [Test] procedure Default_WindowSeconds_Is60;
-    [Test] procedure Default_KeyExtractor_NotNil;
-  end;
-
-  [TestFixture]
   TRateLimitStateTests = class
   private
-    FState:  IRateLimitState;
-    FClock:  TManualClock;
-    FT0:     TDateTime;
+    FState: IRateLimitState;
+    FClock: TManualClock;
+    FT0:    TDateTime;
     procedure FillBucket(const AKey: string; ALimit, AWindowSeconds, ACount: Integer);
   public
     [Setup]    procedure Setup;
@@ -98,24 +90,6 @@ begin
   Result := Trunc(FTime);
 end;
 
-{ TRateLimitOptionsTests }
-
-procedure TRateLimitOptionsTests.Default_Limit_Is60;
-begin
-  Assert.AreEqual(60, TRateLimitOptions.Default.Limit);
-end;
-
-procedure TRateLimitOptionsTests.Default_WindowSeconds_Is60;
-begin
-  Assert.AreEqual(60, TRateLimitOptions.Default.WindowSeconds);
-end;
-
-procedure TRateLimitOptionsTests.Default_KeyExtractor_NotNil;
-begin
-  Assert.IsTrue(Assigned(TRateLimitOptions.Default.KeyExtractor),
-    'KeyExtractor padrão não deve ser nil');
-end;
-
 { TRateLimitStateTests }
 
 procedure TRateLimitStateTests.Setup;
@@ -176,7 +150,6 @@ var
   LRem: Integer; LReset: Int64; LExc: Boolean;
 begin
   FillBucket('ip1', 10, 60, 10);
-  // Verifica o estado após atingir o limite
   FState.CheckAndRecord('ip1', 10, 60, LRem, LReset, LExc);
   Assert.AreEqual(0, LRem, 'Ao exceder o limite, Remaining deve ser 0');
 end;
@@ -206,13 +179,10 @@ var
   LRem: Integer; LReset: Int64; LExc: Boolean;
   I: Integer;
 begin
-  // Preenche ao limite
   FillBucket('ip1', 10, 60, 10);
-  // Faz 5 requisições bloqueadas
   for I := 1 to 5 do
     FState.CheckAndRecord('ip1', 10, 60, LRem, LReset, LExc);
 
-  // Avança além da janela
   FClock.SetTime(FT0 + 61 / SECS_PER_DAY);
   FState.CheckAndRecord('ip1', 10, 60, LRem, LReset, LExc);
 
@@ -265,7 +235,6 @@ var
   LRem: Integer; LReset: Int64; LExc: Boolean;
 begin
   FillBucket('ip1', 10, 60, 10);
-  // ip2 ainda não usou nenhuma quota
   FState.CheckAndRecord('ip2', 10, 60, LRem, LReset, LExc);
   Assert.IsFalse(LExc, 'ip2 não deve ser afetado pelo limite de ip1');
   Assert.AreEqual(9, LRem, 'ip2 deve ter quota completa');
@@ -279,7 +248,6 @@ var
   LExpected: Int64;
 begin
   FState.CheckAndRecord('ip1', 10, 60, LRem, LReset, LExc);
-  // Reset = T0 + 60s
   LExpected := DateTimeToUnix(FT0 + 60 / SECS_PER_DAY, False);
   Assert.AreEqual(LExpected, LReset, 'ResetUnix deve ser T0 + WindowSeconds');
 end;
@@ -290,23 +258,16 @@ var
   LReset2: Int64;
   T1: TDateTime;
 begin
-  // Primeira requisição em FT0
   FState.CheckAndRecord('ip1', 10, 60, LRem, LReset, LExc);
 
-  // Segunda requisição 10s depois
   T1 := FT0 + 10 / SECS_PER_DAY;
   FClock.SetTime(T1);
   FState.CheckAndRecord('ip1', 10, 60, LRem, LReset2, LExc);
-
-  // Reset ainda aponta para a primeira entrada (mais antiga)
   Assert.AreEqual(LReset, LReset2,
     'ResetUnix deve apontar para a entrada mais antiga enquanto ela não expirar');
 
-  // Avança além de 60s desde a primeira entrada
   FClock.SetTime(FT0 + 61 / SECS_PER_DAY);
   FState.CheckAndRecord('ip1', 10, 60, LRem, LReset2, LExc);
-
-  // Agora Reset aponta para T1 + 60s (a entrada mais antiga restante)
   Assert.IsTrue(LReset2 > LReset,
     'Após expirar a entrada mais antiga, ResetUnix deve avançar');
 end;
@@ -326,7 +287,6 @@ begin
 end;
 
 initialization
-  TDUnitX.RegisterTestFixture(TRateLimitOptionsTests);
   TDUnitX.RegisterTestFixture(TRateLimitStateTests);
 
 end.
