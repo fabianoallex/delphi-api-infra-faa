@@ -16,6 +16,7 @@ uses
   Common.DTO.Base in '..\..\src\Common\Common.DTO.Base.pas',
   Common.OrderBy in '..\..\src\Common\Common.OrderBy.pas',
   Common.Pagination in '..\..\src\Common\Common.Pagination.pas',
+  Common.Config in '..\..\src\Common\Common.Config.pas',
   MCP.Utils in '..\..\src\MCP\MCP.Utils.pas',
   Swagger.Attributes in '..\..\src\Swagger\Swagger.Attributes.pas',
   Common.HelpersTests in 'Common.HelpersTests.pas',
@@ -29,7 +30,8 @@ uses
   Swagger.SchemaTests in 'Swagger.SchemaTests.pas',
   Common.OrderByTests in 'Common.OrderByTests.pas',
   Common.PaginationTests in 'Common.PaginationTests.pas',
-  MCP.UtilsTests in 'MCP.UtilsTests.pas';
+  MCP.UtilsTests in 'MCP.UtilsTests.pas',
+  Common.ConfigTests in 'Common.ConfigTests.pas';
 
 var
   runner: ITestRunner;

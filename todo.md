@@ -105,6 +105,8 @@ THorse.Use(TAuthMiddleware.Bearer(
 
 ## Concluído
 
+- [x] Item 9 — `Common.Config.pas`: `TAppConfig` com leitura de env vars + fallback para `app.ini`; `Api.Test.dpr` atualizado para usar `TAppConfig` em todas as configurações hardcoded
+
 - [x] Item 1 — Descriptions ricas: `BuildDescription` combina Summary + `.Descr()` + "Returns: field (type, desc)..." auto-gerado do schema de resposta
 - [x] Item 2 — `isError: true` no envelope `tools/call` quando HTTP status >= 400
 - [x] Item 3 — Constraints `[SwagMin]`/`[SwagMax]` no schema: strings → `minLength`/`maxLength`, números → `minimum`/`maximum`

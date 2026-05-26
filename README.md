@@ -17,6 +17,7 @@ src/
     Common.SystemContext.pas  — TClock e TSleep injetáveis (testabilidade)
     Common.OrderBy.pas        — TOrderBySpec: ordenação segura com whitelist, tiebreaker e DocHint
     Common.Pagination.pas     — TPageMeta, TPageParams: paginação padronizada com WrapJson
+    Common.Config.pas         — TAppConfig: leitura de env vars com fallback para app.ini
   Db/
     Db.Interfaces.pas         — IDBConnection, IDBConnectionPool, ITransaction, IQuery, IMigrationDialect
     Db.Connection.Pool.pas    — TConnectionPool thread-safe com timeout e inatividade
@@ -226,6 +227,60 @@ IProdutoListResponseDTO = interface(IResponsePaginationDTOBase)
   // Adicionar aqui os itens: ex. GetItems: TArray<IProdutoResponseDTO>
 end;
 ```
+
+---
+
+## Configuração (TAppConfig)
+
+O módulo `Common.Config` resolve configuração em três níveis, em ordem de prioridade:
+
+1. **Variável de ambiente** — ideal para containers e CI/CD
+2. **Arquivo `app.ini`** — para desenvolvimento local (nunca commitar credenciais)
+3. **Valor default** embutido no código — fallback seguro
+
+O arquivo ini é buscado automaticamente no diretório do executável com o nome `app.ini`, seção `[Config]`. O caminho pode ser substituído via `TAppConfig.SetIniFile` (útil em testes).
+
+### Uso
+
+```pascal
+uses Common.Config;
+
+// No DPR, antes de qualquer inicialização:
+SetDllDirectory(TAppConfig.Get('FB_CLIENT_DIR',
+  'C:\Program Files\Firebird\Firebird_2_5\WOW64'));
+
+LConfig.ConnectionParams.Add('Database=' +
+  TAppConfig.Get('DB_PATH', 'C:\meu-banco.fdb'));
+LConfig.ConnectionParams.Add('User_Name=' +
+  TAppConfig.Get('DB_USER', 'SYSDBA'));
+LConfig.ConnectionParams.Add('Password=' +
+  TAppConfig.Get('DB_PASSWORD', 'masterkey'));
+
+THorse.Listen(TAppConfig.GetInt('SERVER_PORT', 9000));
+```
+
+### Métodos
+
+| Método | Retorno | Descrição |
+|---|---|---|
+| `Get(key, default)` | `string` | Lê env var → ini → default |
+| `GetInt(key, default)` | `Integer` | Mesmo fluxo; default se não parseável |
+| `GetBool(key, default)` | `Boolean` | Aceita `true`, `1`, `yes` (case-insensitive) |
+| `SetIniFile(path, section)` | — | Substitui o arquivo ini (padrão: `app.ini` ao lado do exe) |
+
+### Exemplo de `app.ini`
+
+```ini
+[Config]
+FB_CLIENT_DIR=C:\Program Files\Firebird\Firebird_2_5\WOW64
+DB_PATH=C:\meu-banco\banco.fdb
+DB_USER=SYSDBA
+DB_PASSWORD=masterkey
+SERVER_PORT=9000
+BASE_URL=http://localhost:9000
+```
+
+> Adicione `app.ini` ao `.gitignore` para não commitar credenciais. Versione apenas um `app.ini.example` com valores de placeholder.
 
 ---
 
