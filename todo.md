@@ -38,14 +38,6 @@ Melhorias identificadas nas avaliações do projeto, ordenadas por prioridade e 
 
 ---
 
-### 8. Teste de conformação de DTOs
-
-**Arquivo:** `tests/Unit/` — novo fixture DUnitX  
-**Objetivo:** Garantir que todo DTO que herda de `IDTOBase` tem seu mapeamento registrado no `TJsonMapper`, evitando falhas silenciosas em runtime.  
-**Abordagem:** Via RTTI, descobrir todas as classes descendentes de `TDTOBase` e, para cada uma, verificar que `TJsonMapper.FindImplClass(TypeInfo(I))` retorna non-nil.
-
----
-
 ## Concluído
 
 - [x] Item 12 — `Db.Mock.pas`: `TMockDBFactory` implementando `IDBFactory`; `TMockQueryResult` (Empty/SingleRow/MultiRows); `TMockParams` com 56 setters/getters Opt/Null/OptNull; `TMockSQLLoader` retorna chave como SQL (bypass de .res); `TMockExecution` captura snapshot de params; `Db.MockTests.pas` com 4 fixtures DUnitX; `Db.SqlLoader.GetSql` promovido a `protected virtual`

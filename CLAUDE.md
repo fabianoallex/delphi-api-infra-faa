@@ -291,6 +291,49 @@ TRouteDoc.Get('/operacoes').ToolName('list_operacao')...
 
 ---
 
+## Teste de conformação de DTOs (projeto consumidor)
+
+Todo projeto concreto deve ter um fixture DUnitX que garanta que cada DTO tem seu mapeamento
+registrado no `TJsonMapper`. Sem isso, `FromJson`/`ToJson` falha silenciosamente em runtime.
+
+```pascal
+// tests/Unit/DTOConformanceTests.pas
+[TestFixture]
+TDTOConformanceTests = class
+public
+  [Test]
+  procedure AllDTOs_HaveJsonMapping;
+end;
+
+procedure TDTOConformanceTests.AllDTOs_HaveJsonMapping;
+var
+  LCtx:   TRttiContext;
+  LType:  TRttiType;
+  LImpl:  TClass;
+begin
+  LCtx := TRttiContext.Create;
+  try
+    for LType in LCtx.GetTypes do
+    begin
+      if not (LType is TRttiInstanceType) then Continue;
+      if not LType.AsInstance.MetaclassType.InheritsFrom(TDTOBase) then Continue;
+      if LType.AsInstance.MetaclassType = TDTOBase then Continue; // pula base abstrata
+
+      LImpl := TJsonMapper.FindImplClass(LType.Handle);
+      Assert.IsNotNull(LImpl,
+        LType.Name + ' herda de TDTOBase mas não tem RegisterMapping registrado');
+    end;
+  finally
+    LCtx.Free;
+  end;
+end;
+```
+
+**Pré-requisitos:** `{$STRONGLINKTYPES ON}` no DPR do projeto e todas as units de DTO na seção `uses`
+— sem isso os `class constructor` não são executados e o teste sempre passa em falso positivo.
+
+---
+
 ## Referências rápidas
 
 - DTO completo de referência: `src/Domain/Cidade/Cidade.DTOs.pas`
