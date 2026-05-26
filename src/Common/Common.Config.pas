@@ -63,11 +63,11 @@ end;
 
 class function TAppConfig.ReadIni(const AKey: string): string;
 var
-  LIni: TIniFile;
+  LIni: TMemIniFile;
 begin
   Result := '';
   if not TFile.Exists(FIniPath) then Exit;
-  LIni := TIniFile.Create(FIniPath);
+  LIni := TMemIniFile.Create(FIniPath);
   try
     Result := LIni.ReadString(FSection, AKey, '');
   finally

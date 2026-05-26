@@ -81,7 +81,7 @@ end;
 
 procedure TAppConfigTests.WriteIni(const AContent: string);
 begin
-  TFile.WriteAllText(FTempIni, AContent, TEncoding.UTF8);
+  TFile.WriteAllText(FTempIni, AContent);
 end;
 
 procedure TAppConfigTests.SetEnv(const AKey, AValue: string);
