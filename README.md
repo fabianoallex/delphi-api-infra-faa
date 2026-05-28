@@ -39,6 +39,7 @@ src/
     Horse.Middleware.Logger.pas       — TLoggerMiddleware: logging de requisições com callback plugável
     Horse.Middleware.ErrorHandler.pas — TErrorHandlerMiddleware + hierarquia EHttpException
     Horse.Middleware.Auth.pas         — TAuthMiddleware: validação Bearer via callback plugável
+    Horse.Middleware.Jwt.pas          — TJwtMiddleware + TJwtHelper: autenticação JWT HS256
     Horse.Middleware.Cors.pas         — TCorsMiddleware: headers CORS configuráveis por origem
     Horse.Middleware.RateLimit.pas    — TRateLimitMiddleware: sliding window por IP ou chave customizável
   Db/ (extras para testes)
@@ -656,6 +657,73 @@ curl -H "Authorization: Bearer meu-token-secreto" http://localhost:9000/produtos
 [Config]
 API_KEY=meu-token-secreto-aqui
 ```
+
+---
+
+## Middleware JWT
+
+O módulo `Horse.Middleware.Jwt` valida tokens JWT com algoritmo **HS256** (HMAC-SHA256) sem dependências externas — usa apenas `System.Hash` e `System.NetEncoding` do RTL Delphi 11+.
+
+### Registro
+
+Registre **após** `TErrorHandlerMiddleware` e **antes** de `RegisterRoutes`:
+
+```pascal
+uses
+  Horse.Middleware.Jwt in 'infra\src\Middleware\Horse.Middleware.Jwt.pas';
+
+THorse.Use(TJwtMiddleware.New(
+  TAppConfig.Get('JWT_SECRET', ''),
+  ['/health', '/swagger', '/auth/login']));  // ← prefixos que passam sem validação
+```
+
+Sem lista de exclusões:
+
+```pascal
+THorse.Use(TJwtMiddleware.New(TAppConfig.Get('JWT_SECRET', '')));
+```
+
+### Lendo claims em handlers
+
+Após a validação pelo middleware, use `TJwtHelper.GetClaimsFromRequest` para extrair os claims do token dentro de qualquer handler:
+
+```pascal
+var LClaims: TJSONObject;
+LClaims := TJwtHelper.GetClaimsFromRequest(Req, TAppConfig.Get('JWT_SECRET', ''));
+try
+  if Assigned(LClaims) then
+  begin
+    LUserId := LClaims.GetValue<string>('sub');
+    LRole   := LClaims.GetValue<string>('role');
+  end;
+finally
+  LClaims.Free;
+end;
+```
+
+> O token já foi validado pelo middleware — `GetClaimsFromRequest` retorna `nil` apenas se o header estiver ausente ou malformado no handler.
+
+### Fluxo de validação
+
+| Situação | Status | Corpo |
+|---|---|---|
+| Path com prefixo excluído | — | passa direto (`Next`) |
+| `Authorization` ausente | 401 | `{"error":"Token de autorização ausente."}` |
+| Header sem `Bearer ` | 401 | `{"error":"Formato inválido. Use: Authorization: Bearer <token>"}` |
+| Assinatura inválida | 401 | `{"error":"Token inválido ou expirado."}` |
+| Token expirado (`exp`) | 401 | `{"error":"Token inválido ou expirado."}` |
+| Token válido | — | passa direto (`Next`) |
+
+### Configuração via app.ini
+
+```ini
+[Config]
+JWT_SECRET=minha-chave-secreta-longa-e-aleatoria
+```
+
+### Escopo
+
+Suporta apenas **HS256** (chave simétrica). RS256/RS384 (chave assimétrica) exigem biblioteca externa de criptografia e estão fora do escopo desta infra.
 
 ---
 
