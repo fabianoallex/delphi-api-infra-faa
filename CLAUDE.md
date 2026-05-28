@@ -239,13 +239,27 @@ THorse.Use(TErrorHandlerMiddleware.New);
 // THorse.Use(TCorsMiddleware.New);                          // dev: libera *
 // THorse.Use(TCorsMiddleware.New('https://app.example.com')); // produção
 
-// Autenticação Bearer (opcional) — deve vir APÓS o ErrorHandler
+// Autenticação Bearer com API key (opcional) — deve vir APÓS o ErrorHandler
 // THorse.Use(TAuthMiddleware.Bearer(
 //   function(const AToken: string): Boolean
 //   begin
 //     Result := AToken = TAppConfig.Get('API_KEY', '');
 //   end,
 //   ['/health', '/swagger']));
+
+// Autenticação JWT HS256 (opcional) — alternativa ao Bearer simples
+// THorse.Use(TJwtMiddleware.New(
+//   TAppConfig.Get('JWT_SECRET', ''),
+//   ['/health', '/swagger', '/auth/login']));
+//
+// Para ler claims em um handler:
+//   var LClaims := TJwtHelper.GetClaimsFromRequest(Req, TAppConfig.Get('JWT_SECRET', ''));
+//   try
+//     if Assigned(LClaims) then
+//       LUserId := LClaims.GetValue<string>('sub');
+//   finally
+//     LClaims.Free;
+//   end;
 
 // Swagger (deve vir antes de RegisterRoutes)
 TRouteDoc.Init('Minha API', '1.0.0', 'localhost:9000');
@@ -452,7 +466,8 @@ As referências de domínio apontam para o template [delphi-api-starter](https:/
 - SQL de referência: `sql/EXEMPLO.FIND.sql`, `sql/EXEMPLO.FIND_COUNT.sql`
 - Middleware de logging: `src/Middleware/Horse.Middleware.Logger.pas`
 - Middleware de erros: `src/Middleware/Horse.Middleware.ErrorHandler.pas`
-- Middleware de autenticação: `src/Middleware/Horse.Middleware.Auth.pas`
+- Middleware de autenticação Bearer: `src/Middleware/Horse.Middleware.Auth.pas`
+- Middleware JWT (HS256): `src/Middleware/Horse.Middleware.Jwt.pas`
 - Middleware CORS: `src/Middleware/Horse.Middleware.Cors.pas`
 - Middleware rate limiting: `src/Middleware/Horse.Middleware.RateLimit.pas`
 - Health check: `src/Common/Common.HealthCheck.pas`
