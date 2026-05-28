@@ -159,7 +159,7 @@ begin
   LCountSql := FFactory.SqlLoader['PEDIDO.FIND_COUNT']
     .ProcessTag('SEARCH', LHasSearch);
 
-  // Executar COUNT e DATA em queries separadas (ver Cidade.Repository para referência completa)
+  // Executar COUNT e DATA em queries separadas (ver Exemplo.Repository no delphi-api-starter para referência completa)
 end;
 ```
 
@@ -207,7 +207,7 @@ TRouteDoc.Patch('/pedidos/:id')
   .Register(handler);
 ```
 
-Para `BuildItemsJson`, ver implementação em `Cidade.Controller` — padrão idêntico.
+Para `BuildItemsJson`, ver implementação em `Exemplo.Controller` no delphi-api-starter — padrão idêntico.
 `EOrderByException` não precisa ser capturada no handler — o `TErrorHandlerMiddleware` converte automaticamente para 400.
 
 ---
@@ -443,12 +443,13 @@ end;
 
 ## Referências rápidas
 
-- DTO completo de referência: `src/Domain/Cidade/Cidade.DTOs.pas`
-- Controller de referência: `src/Domain/Cidade/Cidade.Controller.pas`
-- Repository de referência (paginação): `src/Domain/Cidade/Cidade.Repository.pas`
-- Template de projeto novo: https://github.com/fabianoallex/delphi-api-starter (domínio Exemplo completo, submodules pré-configurados)
-- DPR de referência: `Api.Test.dpr` (na raiz do projeto consumidor)
-- SQL de referência: `sql/CIDADE.FIND.sql`, `sql/CIDADE.FIND_COUNT.sql`
+As referências de domínio apontam para o template [delphi-api-starter](https://github.com/fabianoallex/delphi-api-starter), que contém o domínio `Exemplo` completo e funcional:
+
+- DTO completo de referência: `src/Domain/Exemplo/Exemplo.DTOs.pas`
+- Controller de referência: `src/Domain/Exemplo/Exemplo.Controller.pas`
+- Repository de referência (paginação): `src/Domain/Exemplo/Exemplo.Repository.pas`
+- DPR de referência: `Api.Starter.dpr`
+- SQL de referência: `sql/EXEMPLO.FIND.sql`, `sql/EXEMPLO.FIND_COUNT.sql`
 - Middleware de logging: `src/Middleware/Horse.Middleware.Logger.pas`
 - Middleware de erros: `src/Middleware/Horse.Middleware.ErrorHandler.pas`
 - Middleware de autenticação: `src/Middleware/Horse.Middleware.Auth.pas`
