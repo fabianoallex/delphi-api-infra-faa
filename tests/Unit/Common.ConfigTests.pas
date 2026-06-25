@@ -10,9 +10,9 @@ type
   [TestFixture]
   TAppConfigTests = class
   private
-    FSavedIniPath: string;
-    FTempIni:      string;
-    procedure WriteIni(const AContent: string);
+    FSavedEnvPath: string;
+    FTempEnv:      string;
+    procedure WriteEnv(const AContent: string);
     procedure SetEnv(const AKey, AValue: string);
     procedure ClearEnv(const AKey: string);
   public
@@ -23,13 +23,17 @@ type
 
     // --- Get ---
     [Test]
-    procedure Get_RetornaDefault_QuandoSemEnvEIni;
+    procedure Get_RetornaDefault_QuandoSemEnvEArquivo;
     [Test]
-    procedure Get_LeLni_QuandoSemEnvVar;
+    procedure Get_LeArquivo_QuandoSemEnvVar;
     [Test]
-    procedure Get_EnvVarTemPrioridade_SobreIni;
+    procedure Get_EnvVarTemPrioridade_SobreArquivo;
     [Test]
     procedure Get_RetornaVazio_QuandoSemDefaultNemFonte;
+    [Test]
+    procedure Get_IgnoraComentarios_ELinhasVazias;
+    [Test]
+    procedure Get_RemoveAspas_DuplosESimples;
 
     // --- GetInt ---
     [Test]
@@ -65,23 +69,23 @@ const
 
 procedure TAppConfigTests.Setup;
 begin
-  FSavedIniPath := TAppConfig.IniPath;
-  FTempIni      := TPath.Combine(TPath.GetTempPath, 'appconfig_test.ini');
-  TAppConfig.SetIniFile(FTempIni);
+  FSavedEnvPath := TAppConfig.EnvFilePath;
+  FTempEnv      := TPath.Combine(TPath.GetTempPath, 'appconfig_test.env');
+  TAppConfig.SetEnvFile(FTempEnv);
 end;
 
 procedure TAppConfigTests.TearDown;
 begin
-  TAppConfig.SetIniFile(FSavedIniPath);
-  if TFile.Exists(FTempIni) then
-    TFile.Delete(FTempIni);
+  TAppConfig.SetEnvFile(FSavedEnvPath);
+  if TFile.Exists(FTempEnv) then
+    TFile.Delete(FTempEnv);
   ClearEnv(KEY_A);
   ClearEnv(KEY_B);
 end;
 
-procedure TAppConfigTests.WriteIni(const AContent: string);
+procedure TAppConfigTests.WriteEnv(const AContent: string);
 begin
-  TFile.WriteAllText(FTempIni, AContent);
+  TFile.WriteAllText(FTempEnv, AContent, TEncoding.UTF8);
 end;
 
 procedure TAppConfigTests.SetEnv(const AKey, AValue: string);
@@ -96,20 +100,20 @@ end;
 
 { Get }
 
-procedure TAppConfigTests.Get_RetornaDefault_QuandoSemEnvEIni;
+procedure TAppConfigTests.Get_RetornaDefault_QuandoSemEnvEArquivo;
 begin
   Assert.AreEqual('fallback', TAppConfig.Get(KEY_A, 'fallback'));
 end;
 
-procedure TAppConfigTests.Get_LeLni_QuandoSemEnvVar;
+procedure TAppConfigTests.Get_LeArquivo_QuandoSemEnvVar;
 begin
-  WriteIni('[Config]' + sLineBreak + KEY_A + '=valor_ini');
-  Assert.AreEqual('valor_ini', TAppConfig.Get(KEY_A));
+  WriteEnv(KEY_A + '=valor_env_file');
+  Assert.AreEqual('valor_env_file', TAppConfig.Get(KEY_A));
 end;
 
-procedure TAppConfigTests.Get_EnvVarTemPrioridade_SobreIni;
+procedure TAppConfigTests.Get_EnvVarTemPrioridade_SobreArquivo;
 begin
-  WriteIni('[Config]' + sLineBreak + KEY_A + '=valor_ini');
+  WriteEnv(KEY_A + '=valor_arquivo');
   SetEnv(KEY_A, 'valor_env');
   Assert.AreEqual('valor_env', TAppConfig.Get(KEY_A));
 end;
@@ -119,17 +123,31 @@ begin
   Assert.AreEqual('', TAppConfig.Get(KEY_A));
 end;
 
+procedure TAppConfigTests.Get_IgnoraComentarios_ELinhasVazias;
+begin
+  WriteEnv('# comentario' + sLineBreak + '' + sLineBreak + KEY_A + '=ok');
+  Assert.AreEqual('ok', TAppConfig.Get(KEY_A));
+end;
+
+procedure TAppConfigTests.Get_RemoveAspas_DuplosESimples;
+begin
+  WriteEnv(KEY_A + '="valor com aspas"' + sLineBreak +
+           KEY_B + '=''valor simples''');
+  Assert.AreEqual('valor com aspas', TAppConfig.Get(KEY_A));
+  Assert.AreEqual('valor simples',   TAppConfig.Get(KEY_B));
+end;
+
 { GetInt }
 
 procedure TAppConfigTests.GetInt_ParseaValorNumerico;
 begin
-  WriteIni('[Config]' + sLineBreak + KEY_A + '=9000');
+  WriteEnv(KEY_A + '=9000');
   Assert.AreEqual(9000, TAppConfig.GetInt(KEY_A, 0));
 end;
 
 procedure TAppConfigTests.GetInt_RetornaDefault_QuandoNaoNumerico;
 begin
-  WriteIni('[Config]' + sLineBreak + KEY_A + '=abc');
+  WriteEnv(KEY_A + '=abc');
   Assert.AreEqual(42, TAppConfig.GetInt(KEY_A, 42));
 end;
 
