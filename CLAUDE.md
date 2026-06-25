@@ -303,7 +303,7 @@ TRouteDoc.Get('/operacoes').ToolName('list_operacao')...
 
 ## Suporte a múltiplos bancos por configuração
 
-O mesmo executável pode ser implantado com Firebird ou PostgreSQL — o banco ativo é determinado por uma chave de configuração (ex: `DB_DIALECT` no `app.ini`). Nenhum código de domínio muda; apenas o DPR lê o dialeto e monta a factory correta.
+O mesmo executável pode ser implantado com Firebird ou PostgreSQL — o banco ativo é determinado por uma chave de configuração (ex: `DB_DIALECT` no `.env`). Nenhum código de domínio muda; apenas o DPR lê o dialeto e monta a factory correta.
 
 ### Estrutura de SQL
 
