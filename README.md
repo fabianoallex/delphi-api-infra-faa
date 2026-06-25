@@ -17,7 +17,7 @@ src/
     Common.SystemContext.pas  — TClock e TSleep injetáveis (testabilidade)
     Common.OrderBy.pas        — TOrderBySpec: ordenação segura com whitelist, tiebreaker e DocHint
     Common.Pagination.pas     — TPageMeta, TPageParams: paginação padronizada com WrapJson
-    Common.Config.pas         — TAppConfig: leitura de env vars com fallback para app.ini
+    Common.Config.pas         — TAppConfig: leitura de env vars com fallback para .env
     Common.HealthCheck.pas    — THealthCheck: registra GET /health com verificação de banco
   Db/
     Db.Interfaces.pas         — IDBConnection, IDBConnectionPool, ITransaction, IQuery, IMigrationDialect
@@ -267,10 +267,10 @@ end;
 O módulo `Common.Config` resolve configuração em três níveis, em ordem de prioridade:
 
 1. **Variável de ambiente** — ideal para containers e CI/CD
-2. **Arquivo `app.ini`** — para desenvolvimento local (nunca commitar credenciais)
+2. **Arquivo `.env`** — para desenvolvimento local (nunca commitar credenciais)
 3. **Valor default** embutido no código — fallback seguro
 
-O arquivo ini é buscado automaticamente no diretório do executável com o nome `app.ini`, seção `[Config]`. O caminho pode ser substituído via `TAppConfig.SetIniFile` (útil em testes).
+O arquivo `.env` é buscado automaticamente no diretório do executável. Formato: `KEY=VALUE` por linha; linhas em branco e comentários com `#` são ignorados; valores podem ser delimitados por aspas simples ou duplas. O caminho pode ser substituído via `TAppConfig.SetEnvFile` (útil em testes).
 
 ### Uso
 
@@ -295,15 +295,15 @@ THorse.Listen(TAppConfig.GetInt('SERVER_PORT', 9000));
 
 | Método | Retorno | Descrição |
 |---|---|---|
-| `Get(key, default)` | `string` | Lê env var → ini → default |
+| `Get(key, default)` | `string` | Lê env var → `.env` → default |
 | `GetInt(key, default)` | `Integer` | Mesmo fluxo; default se não parseável |
 | `GetBool(key, default)` | `Boolean` | Aceita `true`, `1`, `yes` (case-insensitive) |
-| `SetIniFile(path, section)` | — | Substitui o arquivo ini (padrão: `app.ini` ao lado do exe) |
+| `SetEnvFile(path)` | — | Substitui o arquivo (padrão: `.env` ao lado do exe) |
+| `SetIniFile(path)` | — | Alias retroativo de `SetEnvFile` |
 
-### Exemplo de `app.ini`
+### Exemplo de `.env`
 
-```ini
-[Config]
+```env
 FB_CLIENT_DIR=C:\Program Files\Firebird\Firebird_2_5\WOW64
 DB_PATH=C:\meu-banco\banco.fdb
 DB_USER=SYSDBA
@@ -312,7 +312,7 @@ SERVER_PORT=9000
 BASE_URL=http://localhost:9000
 ```
 
-> Adicione `app.ini` ao `.gitignore` para não commitar credenciais. Versione apenas um `app.ini.example` com valores de placeholder.
+> Adicione `.env` ao `.gitignore` para não commitar credenciais. Versione um `.env.example` com valores de placeholder.
 
 ---
 
@@ -651,10 +651,9 @@ THorse.Use(TAuthMiddleware.Bearer(
 curl -H "Authorization: Bearer meu-token-secreto" http://localhost:9000/produtos
 ```
 
-### Configuração via app.ini
+### Configuração via .env
 
-```ini
-[Config]
+```env
 API_KEY=meu-token-secreto-aqui
 ```
 
@@ -714,10 +713,9 @@ end;
 | Token expirado (`exp`) | 401 | `{"error":"Token inválido ou expirado."}` |
 | Token válido | — | passa direto (`Next`) |
 
-### Configuração via app.ini
+### Configuração via .env
 
-```ini
-[Config]
+```env
 JWT_SECRET=minha-chave-secreta-longa-e-aleatoria
 ```
 
