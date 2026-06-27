@@ -42,6 +42,8 @@ src/
     Horse.Middleware.Jwt.pas          — TJwtMiddleware + TJwtHelper: autenticação JWT HS256
     Horse.Middleware.Cors.pas         — TCorsMiddleware: headers CORS configuráveis por origem
     Horse.Middleware.RateLimit.pas    — TRateLimitMiddleware: sliding window por IP ou chave customizável
+  Messaging/
+    Messaging.Interfaces.pas          — TMessagingConfig, IMessagePayload, IMessageHandler, IMessageConsumer, IMessagePublisher
   Db/ (extras para testes)
     Db.Mock.pas                       — TMockDBFactory: mock in-memory de IDBFactory para testes unitários
 tests/
@@ -1111,6 +1113,86 @@ SQLDialect=PostgreSQL
 ### Outros componentes de acesso a dados
 
 A arquitetura é extensível: qualquer componente (Zeos, UniDAC, dbExpress, etc.) pode ser suportado implementando as interfaces `IDBConnection`, `IDBConnectionPool`, `ITransaction` e `IQuery` definidas em `Db.Interfaces.pas` e registrando a factory no `TDBRegistry`.
+
+---
+
+## Mensageria (IMessageConsumer / IMessagePublisher)
+
+O módulo `src/Messaging/Messaging.Interfaces.pas` define o contrato de mensageria agnóstico de protocolo e broker. O projeto de negócio implementa apenas `IMessageHandler` — o que fazer quando a mensagem chega. Adapters concretos (AMQP, STOMP, etc.) implementam `IMessageConsumer` e `IMessagePublisher`.
+
+### Interfaces
+
+| Interface | Responsabilidade |
+|---|---|
+| `TMessagingConfig` | Parâmetros de conexão (Host, Port, User, Password, VHost) |
+| `IMessagePayload` | Mensagem recebida — `Body`, `RoutingKey`, `Header(key)` |
+| `IMessageHandler` | Contrato do handler do projeto — `Handle(payload)` |
+| `IMessageConsumer` | Gerencia consumo de uma queue — `Subscribe`, `Start`, `Stop`, `IsRunning` |
+| `IMessagePublisher` | Publica mensagens — `Publish(exchange, routingKey, body)` |
+
+### Uso típico (consumidor)
+
+```pascal
+uses
+  Messaging.Interfaces in 'infra\src\Messaging\Messaging.Interfaces.pas';
+
+// 1. Implementar o handler no projeto
+TNotaFiscalHandler = class(TInterfacedObject, IMessageHandler)
+public
+  constructor Create(AService: INotaFiscalService);
+  procedure Handle(const APayload: IMessagePayload);
+end;
+
+procedure TNotaFiscalHandler.Handle(const APayload: IMessagePayload);
+var
+  LJson: TJSONObject;
+begin
+  LJson := TJSONObject.ParseJSONValue(APayload.Body) as TJSONObject;
+  try
+    FService.ProcessarChave(LJson.GetValue<string>('chave'));
+  finally
+    LJson.Free;
+  end;
+end;
+
+// 2. No DPR — montar config e iniciar consumer (após middlewares, antes de Listen)
+LConfig          := TMessagingConfig.Create;
+LConfig.Host     := TAppConfig.Get('RABBITMQ_HOST', 'localhost');
+LConfig.Port     := TAppConfig.GetInt('RABBITMQ_PORT', 5672);
+LConfig.User     := TAppConfig.Get('RABBITMQ_USER', 'guest');
+LConfig.Password := TAppConfig.Get('RABBITMQ_PASSWORD', 'guest');
+LConfig.VHost    := TAppConfig.Get('RABBITMQ_VHOST', '/');
+
+LConsumer := TRabbitMQConsumer.Create(LConfig);  // adapter concreto
+LConsumer.Subscribe(TAppConfig.Get('RABBITMQ_QUEUE', ''), TNotaFiscalHandler.Create(LService));
+LConsumer.Start;
+
+THorse.Listen(TAppConfig.GetInt('SERVER_PORT', 9000));
+
+LConsumer.Stop;
+```
+
+### Chaves no .env
+
+```env
+RABBITMQ_HOST=localhost
+RABBITMQ_PORT=5672
+RABBITMQ_USER=guest
+RABBITMQ_PASSWORD=guest
+RABBITMQ_VHOST=/
+RABBITMQ_QUEUE=nome_da_queue
+```
+
+### Adapters disponíveis
+
+Nenhum adapter concreto implementado ainda — aguardando definição do protocolo (AMQP ou STOMP) e validação da biblioteca Delphi. Quando implementado, seguirá o mesmo padrão de `Db.Adapters.FireDAC.pas`:
+
+```
+src/Messaging/
+  Messaging.Interfaces.pas       — interfaces (disponível)
+  Messaging.Adapters.AMQP.pas    — adapter AMQP 0-9-1 (futuro)
+  Messaging.Adapters.STOMP.pas   — adapter STOMP (futuro)
+```
 
 ---
 
