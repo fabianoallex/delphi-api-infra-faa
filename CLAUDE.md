@@ -455,6 +455,87 @@ end;
 
 ---
 
+## Mensageria (IMessageConsumer / IMessagePublisher)
+
+O módulo `src/Messaging/Messaging.Interfaces.pas` define o contrato de mensageria agnóstico de protocolo e broker. Adapters concretos (AMQP, STOMP, etc.) implementam `IMessageConsumer` e `IMessagePublisher`. O projeto de negócio implementa apenas `IMessageHandler`.
+
+### Interfaces
+
+| Interface | Responsabilidade |
+|---|---|
+| `IMessagePayload` | Mensagem recebida — `Body`, `RoutingKey`, `Header(key)` |
+| `IMessageHandler` | O que fazer com a mensagem — implementado pelo projeto |
+| `IMessageConsumer` | Gerencia consumo de uma queue — `Subscribe`, `Start`, `Stop`, `IsRunning` |
+| `IMessagePublisher` | Publica mensagens — `Publish(exchange, routingKey, body)` |
+
+`TMessagingConfig` carrega os parâmetros de conexão (Host, Port, User, Password, VHost) normalmente via `TAppConfig`.
+
+### Padrão de uso (consumidor)
+
+```pascal
+// No projeto — única classe que o negócio precisa implementar
+TNotaFiscalHandler = class(TInterfacedObject, IMessageHandler)
+public
+  procedure Handle(const APayload: IMessagePayload);
+end;
+
+procedure TNotaFiscalHandler.Handle(const APayload: IMessagePayload);
+var
+  LJson: TJSONObject;
+begin
+  LJson := TJSONObject.ParseJSONValue(APayload.Body) as TJSONObject;
+  try
+    // processar LJson.GetValue<string>('chave') ...
+  finally
+    LJson.Free;
+  end;
+end;
+
+// No DPR — montar config e iniciar consumer
+LConfig          := TMessagingConfig.Create;
+LConfig.Host     := TAppConfig.Get('RABBITMQ_HOST', 'localhost');
+LConfig.Port     := TAppConfig.GetInt('RABBITMQ_PORT', 5672);
+LConfig.User     := TAppConfig.Get('RABBITMQ_USER', 'guest');
+LConfig.Password := TAppConfig.Get('RABBITMQ_PASSWORD', 'guest');
+LConfig.VHost    := TAppConfig.Get('RABBITMQ_VHOST', '/');
+
+LConsumer := TRabbitMQConsumer.Create(LConfig);  // adapter concreto
+LConsumer.Subscribe(TAppConfig.Get('RABBITMQ_QUEUE', ''), TNotaFiscalHandler.Create(LService));
+LConsumer.Start;
+// ...
+LConsumer.Stop;
+```
+
+### Convenção de chaves no .env
+
+```env
+RABBITMQ_HOST=localhost
+RABBITMQ_PORT=5672
+RABBITMQ_USER=guest
+RABBITMQ_PASSWORD=guest
+RABBITMQ_VHOST=/
+RABBITMQ_QUEUE=nome_da_queue
+```
+
+### Adapters disponíveis
+
+Nenhum adapter concreto está implementado ainda — aguardando definição do protocolo (AMQP ou STOMP) e validação da biblioteca Delphi. Quando implementado, seguirá o padrão de `src/Db/Db.Adapters.FireDAC.pas`:
+
+```
+src/Messaging/
+  Messaging.Interfaces.pas          — interfaces (disponível)
+  Messaging.Adapters.AMQP.pas       — adapter AMQP (futuro)
+  Messaging.Adapters.STOMP.pas      — adapter STOMP (futuro)
+```
+
+### Anti-padrões a evitar
+
+- Implementar lógica de negócio no adapter — o adapter só faz connect/subscribe/ack; a lógica fica no `IMessageHandler`
+- Instanciar o adapter diretamente no handler — o handler recebe o service por injeção de dependência
+- Usar `TMessagingConfig` com valores hardcoded — sempre ler do `TAppConfig`
+
+---
+
 ## Referências rápidas
 
 As referências de domínio apontam para o template [delphi-api-starter](https://github.com/fabianoallex/delphi-api-starter), que contém o domínio `Exemplo` completo e funcional:
