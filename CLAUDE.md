@@ -467,8 +467,11 @@ O módulo `src/Messaging/Messaging.Interfaces.pas` define o contrato de mensager
 | `IMessageHandler` | O que fazer com a mensagem — implementado pelo projeto |
 | `IMessageConsumer` | Gerencia consumo de uma queue — `Subscribe`, `Start`, `Stop`, `IsRunning` |
 | `IMessagePublisher` | Publica mensagens — `Publish(exchange, routingKey, body)` |
+| `IMessagingFactory` | Cria `IMessageConsumer`/`IMessagePublisher` — implementada pelo adapter concreto |
 
 `TMessagingConfig` carrega os parâmetros de conexão (Host, Port, User, Password, VHost) normalmente via `TAppConfig`.
+
+`TMessagingRegistry` (`Messaging.Adapters.Registry.pas`) resolve o `IMessagingFactory` por nome — mesmo padrão de `Db.Adapters.Registry.TDBRegistry`. O projeto de negócio nunca referencia o pacote concreto do adapter, só a string do nome que ele registrou.
 
 ### Padrão de uso (consumidor)
 
@@ -499,7 +502,9 @@ LConfig.User     := TAppConfig.Get('RABBITMQ_USER', 'guest');
 LConfig.Password := TAppConfig.Get('RABBITMQ_PASSWORD', 'guest');
 LConfig.VHost    := TAppConfig.Get('RABBITMQ_VHOST', '/');
 
-LConsumer := TRabbitMQConsumer.Create(LConfig);  // adapter concreto
+// 'rabbitmq' é o nome que o adapter concreto usa para se registrar
+LFactory  := TMessagingRegistry.GetFactory(TAppConfig.Get('MESSAGING_ADAPTER', 'rabbitmq'));
+LConsumer := LFactory.CreateConsumer(LConfig);
 LConsumer.Subscribe(TAppConfig.Get('RABBITMQ_QUEUE', ''), TNotaFiscalHandler.Create(LService));
 LConsumer.Start;
 // ...
@@ -519,19 +524,26 @@ RABBITMQ_QUEUE=nome_da_queue
 
 ### Adapters disponíveis
 
-Nenhum adapter concreto está implementado ainda — aguardando definição do protocolo (AMQP ou STOMP) e validação da biblioteca Delphi. Quando implementado, seguirá o padrão de `src/Db/Db.Adapters.FireDAC.pas`:
+Nenhum adapter concreto está implementado ainda — aguardando validação da biblioteca AMQP para Delphi. O contrato (`Messaging.Interfaces.pas`) e o registro (`Messaging.Adapters.Registry.pas`) já estão prontos nesta biblioteca. O adapter concreto fica **fora** dela, em pacote próprio — depende diretamente do componente AMQP escolhido, então não deve contaminar esta biblioteca open source com a licença/dependência de terceiros:
 
 ```
-src/Messaging/
-  Messaging.Interfaces.pas          — interfaces (disponível)
-  Messaging.Adapters.AMQP.pas       — adapter AMQP (futuro)
-  Messaging.Adapters.STOMP.pas      — adapter STOMP (futuro)
+delphi-api-infra-faa/ (este repo — sem dependência de AMQP)
+  src/Messaging/
+    Messaging.Interfaces.pas          — interfaces (disponível)
+    Messaging.Adapters.Registry.pas   — TMessagingRegistry (disponível)
+
+outro pacote/repo (depende do componente AMQP escolhido)
+  Messaging.Adapters.RabbitMQ.pas     — implementa IMessagingFactory/IMessageConsumer/
+                                         IMessagePublisher; registra-se via
+                                         TMessagingRegistry.RegisterFactory('rabbitmq', ...)
+                                         na própria unit initialization (futuro)
 ```
 
 ### Anti-padrões a evitar
 
 - Implementar lógica de negócio no adapter — o adapter só faz connect/subscribe/ack; a lógica fica no `IMessageHandler`
 - Instanciar o adapter diretamente no handler — o handler recebe o service por injeção de dependência
+- Referenciar o pacote do adapter concreto (ex.: unit do AMQP) fora da própria unit do adapter — o resto do código só conhece `TMessagingRegistry` + as interfaces
 - Usar `TMessagingConfig` com valores hardcoded — sempre ler do `TAppConfig`
 
 ---
