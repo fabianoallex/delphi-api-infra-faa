@@ -43,7 +43,8 @@ src/
     Horse.Middleware.Cors.pas         — TCorsMiddleware: headers CORS configuráveis por origem
     Horse.Middleware.RateLimit.pas    — TRateLimitMiddleware: sliding window por IP ou chave customizável
   Messaging/
-    Messaging.Interfaces.pas          — TMessagingConfig, IMessagePayload, IMessageHandler, IMessageConsumer, IMessagePublisher
+    Messaging.Interfaces.pas          — TMessagingConfig, IMessagePayload, IMessageHandler, IMessageConsumer, IMessagePublisher, IMessagingFactory
+    Messaging.Adapters.Registry.pas   — TMessagingRegistry: registro de factories por nome
   Db/ (extras para testes)
     Db.Mock.pas                       — TMockDBFactory: mock in-memory de IDBFactory para testes unitários
 tests/
@@ -1129,12 +1130,20 @@ O módulo `src/Messaging/Messaging.Interfaces.pas` define o contrato de mensager
 | `IMessageHandler` | Contrato do handler do projeto — `Handle(payload)` |
 | `IMessageConsumer` | Gerencia consumo de uma queue — `Subscribe`, `Start`, `Stop`, `IsRunning` |
 | `IMessagePublisher` | Publica mensagens — `Publish(exchange, routingKey, body)` |
+| `IMessagingFactory` | Cria `IMessageConsumer`/`IMessagePublisher` — implementada pelo adapter concreto |
+
+Resolução do adapter por nome, mesmo padrão de `Db.Adapters.Registry.TDBRegistry`: o projeto de negócio nunca referencia o pacote concreto (ex.: AMQP), só a string do nome registrado.
+
+| Classe | Responsabilidade |
+|---|---|
+| `TMessagingRegistry` | Registro de `IMessagingFactory` por nome (`RegisterFactory`, `GetFactory`) |
 
 ### Uso típico (consumidor)
 
 ```pascal
 uses
-  Messaging.Interfaces in 'infra\src\Messaging\Messaging.Interfaces.pas';
+  Messaging.Interfaces        in 'infra\src\Messaging\Messaging.Interfaces.pas',
+  Messaging.Adapters.Registry in 'infra\src\Messaging\Messaging.Adapters.Registry.pas';
 
 // 1. Implementar o handler no projeto
 TNotaFiscalHandler = class(TInterfacedObject, IMessageHandler)
@@ -1163,7 +1172,10 @@ LConfig.User     := TAppConfig.Get('RABBITMQ_USER', 'guest');
 LConfig.Password := TAppConfig.Get('RABBITMQ_PASSWORD', 'guest');
 LConfig.VHost    := TAppConfig.Get('RABBITMQ_VHOST', '/');
 
-LConsumer := TRabbitMQConsumer.Create(LConfig);  // adapter concreto
+// 'rabbitmq' é o nome que o adapter concreto usa para se registrar
+// (na unit initialization dele — ver "Adapters disponíveis" abaixo).
+LFactory  := TMessagingRegistry.GetFactory(TAppConfig.Get('MESSAGING_ADAPTER', 'rabbitmq'));
+LConsumer := LFactory.CreateConsumer(LConfig);
 LConsumer.Subscribe(TAppConfig.Get('RABBITMQ_QUEUE', ''), TNotaFiscalHandler.Create(LService));
 LConsumer.Start;
 
@@ -1185,13 +1197,19 @@ RABBITMQ_QUEUE=nome_da_queue
 
 ### Adapters disponíveis
 
-Nenhum adapter concreto implementado ainda — aguardando definição do protocolo (AMQP ou STOMP) e validação da biblioteca Delphi. Quando implementado, seguirá o mesmo padrão de `Db.Adapters.FireDAC.pas`:
+Nenhum adapter concreto implementado ainda — aguardando validação da biblioteca AMQP para Delphi. O contrato (`Messaging.Interfaces.pas`) e o registro (`Messaging.Adapters.Registry.pas`) já estão prontos nesta biblioteca; o adapter concreto fica **fora** dela, em pacote próprio, porque depende diretamente do componente AMQP escolhido (evita contaminar esta biblioteca open source com a licença/dependência de terceiros):
 
 ```
-src/Messaging/
-  Messaging.Interfaces.pas       — interfaces (disponível)
-  Messaging.Adapters.AMQP.pas    — adapter AMQP 0-9-1 (futuro)
-  Messaging.Adapters.STOMP.pas   — adapter STOMP (futuro)
+delphi-api-infra-faa/ (este repo — sem dependência de AMQP)
+  src/Messaging/
+    Messaging.Interfaces.pas          — interfaces (disponível)
+    Messaging.Adapters.Registry.pas   — TMessagingRegistry (disponível)
+
+outro pacote/repo (depende do componente AMQP escolhido)
+  Messaging.Adapters.RabbitMQ.pas     — implementa IMessagingFactory/IMessageConsumer/
+                                         IMessagePublisher; registra-se via
+                                         TMessagingRegistry.RegisterFactory('rabbitmq', ...)
+                                         na própria unit initialization (futuro)
 ```
 
 ---

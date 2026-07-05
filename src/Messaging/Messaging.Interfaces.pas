@@ -55,6 +55,17 @@ type
     procedure Publish(const AExchange, ARoutingKey, ABody: string);
   end;
 
+  { IMessagingFactory
+    Implementada pelo adapter concreto (fora desta biblioteca — ver
+    Messaging.Adapters.Registry). Cria consumers/publishers sem que o
+    projeto de negócio precise referenciar o adapter diretamente. }
+
+  IMessagingFactory = interface
+    ['{E7B5A6D8-D9CA-4312-3E4F-A5B6C7D8E9FA}']
+    function CreateConsumer(const AConfig: TMessagingConfig): IMessageConsumer;
+    function CreatePublisher(const AConfig: TMessagingConfig): IMessagePublisher;
+  end;
+
 implementation
 
 constructor TMessagingConfig.Create;
