@@ -35,7 +35,10 @@ uses
   Common.PaginationTests in 'Common.PaginationTests.pas',
   MCP.UtilsTests in 'MCP.UtilsTests.pas',
   Common.ConfigTests in 'Common.ConfigTests.pas',
-  RateLimitTests in 'RateLimitTests.pas';
+  RateLimitTests in 'RateLimitTests.pas',
+  Messaging.Interfaces in '..\..\src\Messaging\Messaging.Interfaces.pas',
+  Messaging.Adapters.Registry in '..\..\src\Messaging\Messaging.Adapters.Registry.pas',
+  Messaging.Adapters.RegistryTests in 'Messaging.Adapters.RegistryTests.pas';
 
 var
   runner: ITestRunner;
