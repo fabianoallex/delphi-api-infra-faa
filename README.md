@@ -1197,7 +1197,7 @@ RABBITMQ_QUEUE=nome_da_queue
 
 ### Adapters disponíveis
 
-Nenhum adapter concreto implementado ainda — aguardando validação da biblioteca AMQP para Delphi. O contrato (`Messaging.Interfaces.pas`) e o registro (`Messaging.Adapters.Registry.pas`) já estão prontos nesta biblioteca; o adapter concreto fica **fora** dela, em pacote próprio, porque depende diretamente do componente AMQP escolhido (evita contaminar esta biblioteca open source com a licença/dependência de terceiros):
+O contrato (`Messaging.Interfaces.pas`) e o registro (`Messaging.Adapters.Registry.pas`) ficam nesta biblioteca; o adapter concreto fica **fora** dela, em pacote próprio, porque depende diretamente do componente AMQP escolhido (evita contaminar esta biblioteca open source com a licença/dependência de terceiros):
 
 ```
 delphi-api-infra-faa/ (este repo — sem dependência de AMQP)
@@ -1205,11 +1205,22 @@ delphi-api-infra-faa/ (este repo — sem dependência de AMQP)
     Messaging.Interfaces.pas          — interfaces (disponível)
     Messaging.Adapters.Registry.pas   — TMessagingRegistry (disponível)
 
-outro pacote/repo (depende do componente AMQP escolhido)
-  Messaging.Adapters.RabbitMQ.pas     — implementa IMessagingFactory/IMessageConsumer/
-                                         IMessagePublisher; registra-se via
-                                         TMessagingRegistry.RegisterFactory('rabbitmq', ...)
-                                         na própria unit initialization (futuro)
+delphi-amqp-faa/ (https://github.com/fabianoallex/delphi-amqp-faa — MIT)
+  src/Messaging.Adapters.DelphiAmqpFaa.pas
+                                      — implementa IMessagingFactory/IMessageConsumer/
+                                        IMessagePublisher sobre AMQP.Connection;
+                                        registra-se como 'rabbitmq' na própria
+                                        unit initialization
+```
+
+Para usar: adicione ao *search path* do projeto tanto `src/Messaging` desta
+biblioteca quanto `src` de `delphi-amqp-faa`, inclua
+`Messaging.Adapters.DelphiAmqpFaa` no `uses` (basta estar listada para se
+registrar) e resolva por nome:
+
+```pascal
+LFactory  := TMessagingRegistry.GetFactory('rabbitmq');
+LConsumer := LFactory.CreateConsumer(LConfig);
 ```
 
 ---

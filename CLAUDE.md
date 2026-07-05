@@ -524,7 +524,7 @@ RABBITMQ_QUEUE=nome_da_queue
 
 ### Adapters disponíveis
 
-Nenhum adapter concreto está implementado ainda — aguardando validação da biblioteca AMQP para Delphi. O contrato (`Messaging.Interfaces.pas`) e o registro (`Messaging.Adapters.Registry.pas`) já estão prontos nesta biblioteca. O adapter concreto fica **fora** dela, em pacote próprio — depende diretamente do componente AMQP escolhido, então não deve contaminar esta biblioteca open source com a licença/dependência de terceiros:
+O contrato (`Messaging.Interfaces.pas`) e o registro (`Messaging.Adapters.Registry.pas`) ficam nesta biblioteca. O adapter concreto fica **fora** dela, em pacote próprio — depende diretamente do componente AMQP escolhido, então não deve contaminar esta biblioteca open source com a licença/dependência de terceiros:
 
 ```
 delphi-api-infra-faa/ (este repo — sem dependência de AMQP)
@@ -532,12 +532,17 @@ delphi-api-infra-faa/ (este repo — sem dependência de AMQP)
     Messaging.Interfaces.pas          — interfaces (disponível)
     Messaging.Adapters.Registry.pas   — TMessagingRegistry (disponível)
 
-outro pacote/repo (depende do componente AMQP escolhido)
-  Messaging.Adapters.RabbitMQ.pas     — implementa IMessagingFactory/IMessageConsumer/
-                                         IMessagePublisher; registra-se via
-                                         TMessagingRegistry.RegisterFactory('rabbitmq', ...)
-                                         na própria unit initialization (futuro)
+delphi-amqp-faa/ (https://github.com/fabianoallex/delphi-amqp-faa — MIT)
+  src/Messaging.Adapters.DelphiAmqpFaa.pas
+                                      — implementa IMessagingFactory/IMessageConsumer/
+                                        IMessagePublisher sobre AMQP.Connection;
+                                        registra-se como 'rabbitmq' na própria
+                                        unit initialization
 ```
+
+Uso: search path do projeto precisa de `src/Messaging` desta biblioteca +
+`src` de `delphi-amqp-faa`; incluir `Messaging.Adapters.DelphiAmqpFaa` no
+`uses` já registra a factory (`TMessagingRegistry.GetFactory('rabbitmq')`).
 
 ### Anti-padrões a evitar
 
