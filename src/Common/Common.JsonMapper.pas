@@ -260,7 +260,13 @@ begin
 
     tkFloat:
       if not(AJsonValue is TJSONNull) then
-        Result := TValue.From<Double>((AJsonValue as TJSONNumber).AsDouble);
+      begin
+        if ARttiType.Handle = TypeInfo(TDateTime) then
+          Result := TValue.From<TDateTime>
+            (ISO8601ToDate((AJsonValue as TJSONString).Value))
+        else
+          Result := TValue.From<Double>((AJsonValue as TJSONNumber).AsDouble);
+      end;
 
     tkEnumeration:
       if (not(AJsonValue is TJSONNull)) and
@@ -410,7 +416,12 @@ begin
 
     tkFloat:
       if not(AJsonValue is TJSONNull) then
-        AProp.SetValue(AObj, (AJsonValue as TJSONNumber).AsDouble);
+      begin
+        if AProp.PropertyType.Handle = TypeInfo(TDateTime) then
+          AProp.SetValue(AObj, ISO8601ToDate((AJsonValue as TJSONString).Value))
+        else
+          AProp.SetValue(AObj, (AJsonValue as TJSONNumber).AsDouble);
+      end;
 
     tkEnumeration:
       if (not(AJsonValue is TJSONNull)) and

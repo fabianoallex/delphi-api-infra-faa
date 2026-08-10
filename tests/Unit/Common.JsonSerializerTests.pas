@@ -28,6 +28,7 @@ type
     [Test] procedure TestSerialize_ArrayOfStrings;
     [Test] procedure TestSerialize_ArrayOfInterfaces;
     [Test] procedure TestRoundTrip_DeserializeThenSerialize;
+    [Test] procedure TestDeserialize_RequiredDateTime_ParsesISO8601;
   end;
 
   // --- Interfaces for serializer tests ---
@@ -164,6 +165,22 @@ type
     procedure SetTags(AValue: TArray<string>);
     function GetCidades: TArray<ISerCidade>;
     procedure SetCidades(AValue: TArray<ISerCidade>);
+  end;
+
+  ISerEvento = interface
+    ['{2F6C6E1A-9C3F-4A2B-8C36-3E5A7D8C10F3}']
+    function GetOcorridoEm: TDateTime;
+    procedure SetOcorridoEm(AValue: TDateTime);
+    property OcorridoEm: TDateTime read GetOcorridoEm write SetOcorridoEm;
+  end;
+
+  TSerEvento = class(TInterfacedObject, ISerEvento)
+  private
+    FOcorridoEm: TDateTime;
+  public
+    function GetOcorridoEm: TDateTime;
+    procedure SetOcorridoEm(AValue: TDateTime);
+    property OcorridoEm: TDateTime read GetOcorridoEm write SetOcorridoEm;
   end;
 
 implementation
@@ -317,6 +334,18 @@ end;
 procedure TSerLista.SetCidades(AValue: TArray<ISerCidade>);
 begin
   FCidades := AValue;
+end;
+
+{ TSerEvento }
+
+function TSerEvento.GetOcorridoEm: TDateTime;
+begin
+  Result := FOcorridoEm;
+end;
+
+procedure TSerEvento.SetOcorridoEm(AValue: TDateTime);
+begin
+  FOcorridoEm := AValue;
 end;
 
 { Helpers }
@@ -680,6 +709,21 @@ begin
     LObj1.Free;
     LObj2.Free;
   end;
+end;
+
+procedure TJsonSerializerTests.TestDeserialize_RequiredDateTime_ParsesISO8601;
+var
+  LJson: string;
+  LP: ISerEvento;
+  LExpected: TDateTime;
+begin
+  TJsonMapper.RegisterMapping<ISerEvento, TSerEvento>;
+
+  LJson := '{"ocorridoEm":"2026-07-01T00:00:00.000Z"}';
+  LP := TJsonMapper.FromJson<ISerEvento>(LJson);
+
+  LExpected := ISO8601ToDate('2026-07-01T00:00:00.000Z');
+  Assert.AreEqual(LExpected, LP.OcorridoEm, 1 / SecsPerDay);
 end;
 
 initialization
