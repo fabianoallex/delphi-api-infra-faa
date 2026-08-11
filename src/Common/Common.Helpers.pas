@@ -123,7 +123,11 @@ begin
   if not Assigned(LParam) then
     Exit;
   if ACondition then
-    LParam.Value := AValue
+  begin
+    if LParam.Size < Length(AValue) then
+      LParam.Size := Length(AValue);
+    LParam.Value := AValue;
+  end
   else
     LParam.Clear;
 end;
@@ -240,7 +244,11 @@ begin
   if not Assigned(LParam) then
     Exit;
   if ACondition then
-    LParam.Value := AValue
+  begin
+    if LParam.Size < Length(AValue) then
+      LParam.Size := Length(AValue);
+    LParam.Value := AValue;
+  end
   else
     LParam.Clear;
 end;

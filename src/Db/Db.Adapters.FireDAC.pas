@@ -518,8 +518,13 @@ begin
 end;
 
 procedure TFDParamsAdapter.SetString(const AName: string; AValue: string);
+var
+  LParam: TFDParam;
 begin
-  FQuery.ParamByName(AName).AsString := AValue;
+  LParam := FQuery.ParamByName(AName);
+  if LParam.Size < Length(AValue) then
+    LParam.Size := Length(AValue);
+  LParam.AsString := AValue;
 end;
 
 procedure TFDParamsAdapter.SetBoolean(const AName: string; AValue: Boolean);
@@ -798,9 +803,18 @@ end;
 // --- Null setters (sempre Null ou valor, nunca Undefined) ---
 
 procedure TFDParamsAdapter.SetNullString(const AName: string; AValue: INullString);
+var
+  LParam: TFDParam;
 begin
-  if AValue.IsNull then FQuery.ParamByName(AName).Clear
-  else FQuery.ParamByName(AName).AsString := AValue.Value;
+  LParam := FQuery.ParamByName(AName);
+  if AValue.IsNull then
+    LParam.Clear
+  else
+  begin
+    if LParam.Size < Length(AValue.Value) then
+      LParam.Size := Length(AValue.Value);
+    LParam.AsString := AValue.Value;
+  end;
 end;
 
 procedure TFDParamsAdapter.SetNullBoolean(const AName: string; AValue: INullBoolean);
@@ -842,9 +856,14 @@ end;
 // --- Opt setters (Undefined → skip, valor → set; IsNull não se aplica) ---
 
 procedure TFDParamsAdapter.SetOptString(const AName: string; AValue: IOptString);
+var
+  LParam: TFDParam;
 begin
   if not AValue.HasValue then Exit;
-  FQuery.ParamByName(AName).AsString := AValue.Value;
+  LParam := FQuery.ParamByName(AName);
+  if LParam.Size < Length(AValue.Value) then
+    LParam.Size := Length(AValue.Value);
+  LParam.AsString := AValue.Value;
 end;
 
 procedure TFDParamsAdapter.SetOptBoolean(const AName: string; AValue: IOptBoolean);

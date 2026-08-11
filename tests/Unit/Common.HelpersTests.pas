@@ -67,6 +67,7 @@ type
 
     [Test] procedure TestParamByNameIf_String_ConditionTrue_SetsValue;
     [Test] procedure TestParamByNameIf_String_ConditionFalse_SetsNull;
+    [Test] procedure TestParamByNameIf_String_LongerThanSize_GrowsSize;
     [Test] procedure TestParamByNameIf_Integer_ConditionTrue;
     [Test] procedure TestParamByNameIf_Currency_ConditionTrue;
     [Test] procedure TestParamByNameIf_ParamNotFound_DoesNothing;
@@ -77,7 +78,8 @@ type
     [Test] procedure TestParamByNameOptional_Fluent_ReturnsParams;
   end;
 
-  // TFDParamsHelper — lógica idêntica a TParamsHelper (coberta acima).
+  // TFDParamsHelper — lógica idêntica a TParamsHelper (coberta acima),
+  // incluindo o crescimento de Size em ParamByNameIf(string).
   // TFDParam não permite instanciação standalone sem TFDQuery ativo;
   // validar via testes de integração com banco real ou em memória.
 
@@ -358,6 +360,21 @@ begin
   FParams.FindParam('Nome').Value := 'valor anterior';
   FParams.ParamByNameIf('Nome', 'Produto X', False);
   Assert.IsTrue(FParams.FindParam('Nome').IsNull);
+end;
+
+procedure TParamsHelperTests.TestParamByNameIf_String_LongerThanSize_GrowsSize;
+var
+  LValue: string;
+begin
+  AddParam('XmlEnvio', ftString);
+  FParams.FindParam('XmlEnvio').Size := 50; // simula Size curto descrito pelo driver
+  LValue := StringOfChar('X', 200);
+
+  FParams.ParamByNameIf('XmlEnvio', LValue, True);
+
+  Assert.IsTrue(FParams.FindParam('XmlEnvio').Size >= 200,
+    'Size deve crescer para acomodar o valor');
+  Assert.AreEqual(LValue, string(FParams.FindParam('XmlEnvio').Value));
 end;
 
 procedure TParamsHelperTests.TestParamByNameIf_Integer_ConditionTrue;
