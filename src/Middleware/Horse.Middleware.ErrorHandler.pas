@@ -1,4 +1,4 @@
-unit Horse.Middleware.ErrorHandler;
+﻿unit Horse.Middleware.ErrorHandler;
 
 interface
 

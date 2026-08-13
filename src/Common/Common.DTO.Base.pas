@@ -1,4 +1,4 @@
-unit Common.DTO.Base;
+﻿unit Common.DTO.Base;
 
 interface
 

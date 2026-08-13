@@ -1,4 +1,4 @@
-unit Swagger.Attributes;
+﻿unit Swagger.Attributes;
 
 interface
 

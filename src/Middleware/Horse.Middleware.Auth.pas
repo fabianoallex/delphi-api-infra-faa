@@ -1,4 +1,4 @@
-unit Horse.Middleware.Auth;
+﻿unit Horse.Middleware.Auth;
 
 interface
 

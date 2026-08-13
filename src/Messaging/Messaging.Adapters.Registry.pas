@@ -1,4 +1,4 @@
-unit Messaging.Adapters.Registry;
+﻿unit Messaging.Adapters.Registry;
 
 interface
 

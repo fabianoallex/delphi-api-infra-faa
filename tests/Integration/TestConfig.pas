@@ -1,4 +1,4 @@
-unit TestConfig;
+﻿unit TestConfig;
 
 interface
 

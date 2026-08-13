@@ -1,4 +1,4 @@
-unit ClockCacheTests;
+﻿unit ClockCacheTests;
 
 interface
 

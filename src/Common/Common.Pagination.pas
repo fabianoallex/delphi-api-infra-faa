@@ -1,4 +1,4 @@
-unit Common.Pagination;
+﻿unit Common.Pagination;
 
 interface
 

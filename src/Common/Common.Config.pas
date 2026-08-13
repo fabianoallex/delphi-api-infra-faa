@@ -1,4 +1,4 @@
-unit Common.Config;
+﻿unit Common.Config;
 
 {
   Lê configuração de variáveis de ambiente com fallback para arquivo .env.

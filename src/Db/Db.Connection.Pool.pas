@@ -1,4 +1,4 @@
-unit Db.Connection.Pool;
+﻿unit Db.Connection.Pool;
 
 interface
 

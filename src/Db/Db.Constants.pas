@@ -1,4 +1,4 @@
-unit Db.Constants;
+﻿unit Db.Constants;
 
 {
   QUALQUER ALTERAÇÃO FEITA AQUI, MANTER O HISTÓRICO COMENTADO DA

@@ -1,4 +1,4 @@
-unit Db.SqlLoader;
+﻿unit Db.SqlLoader;
 
 interface
 

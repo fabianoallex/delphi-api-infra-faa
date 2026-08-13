@@ -1,4 +1,4 @@
-unit Common.RateLimitState;
+﻿unit Common.RateLimitState;
 
 interface
 

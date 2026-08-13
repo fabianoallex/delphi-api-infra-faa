@@ -1,4 +1,4 @@
-unit Common.HelpersTests;
+﻿unit Common.HelpersTests;
 
 interface
 

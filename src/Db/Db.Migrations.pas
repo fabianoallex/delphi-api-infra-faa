@@ -1,4 +1,4 @@
-unit Db.Migrations;
+﻿unit Db.Migrations;
 
 {*******************************************************************************
   ESTRATÉGIA DE EVOLUÇÃO DO SCHEMA (MIGRATIONS)

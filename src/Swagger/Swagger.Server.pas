@@ -1,4 +1,4 @@
-unit Swagger.Server;
+﻿unit Swagger.Server;
 
 interface
 

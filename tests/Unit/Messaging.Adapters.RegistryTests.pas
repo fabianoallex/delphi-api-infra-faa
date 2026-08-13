@@ -1,4 +1,4 @@
-unit Messaging.Adapters.RegistryTests;
+﻿unit Messaging.Adapters.RegistryTests;
 
 interface
 

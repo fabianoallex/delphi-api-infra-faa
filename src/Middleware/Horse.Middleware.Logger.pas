@@ -1,4 +1,4 @@
-unit Horse.Middleware.Logger;
+﻿unit Horse.Middleware.Logger;
 
 interface
 

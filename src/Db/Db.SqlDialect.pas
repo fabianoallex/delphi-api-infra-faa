@@ -1,4 +1,4 @@
-unit Db.SqlDialect;
+﻿unit Db.SqlDialect;
 
 interface
 

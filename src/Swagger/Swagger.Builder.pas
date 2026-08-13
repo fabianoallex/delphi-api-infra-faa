@@ -1,4 +1,4 @@
-unit Swagger.Builder;
+﻿unit Swagger.Builder;
 
 interface
 

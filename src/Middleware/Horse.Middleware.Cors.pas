@@ -1,4 +1,4 @@
-unit Horse.Middleware.Cors;
+﻿unit Horse.Middleware.Cors;
 
 interface
 

@@ -1,4 +1,4 @@
-unit Messaging.Interfaces;
+﻿unit Messaging.Interfaces;
 
 {
   Interfaces de mensageria — protocolo e broker agnósticos.

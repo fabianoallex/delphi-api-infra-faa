@@ -1,4 +1,4 @@
-unit Horse.Middleware.Jwt;
+﻿unit Horse.Middleware.Jwt;
 
 interface
 
