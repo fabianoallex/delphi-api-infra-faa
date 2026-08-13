@@ -396,6 +396,23 @@ LService := TPedidoService.Create(TPedidoRepository.Create(LFactory));
 
 ---
 
+## Pool de conexões
+
+Tamanho do pool e fechamento por inatividade são configurados em `TFDConfig`, antes de `TFDFactory.Create` (mesmo bloco de montagem da factory, acima):
+
+```pascal
+LConfig.PoolIniConnections      := TAppConfig.GetInt('POOL_INI_CONNECTIONS', 3);
+LConfig.PoolMaxConnections      := TAppConfig.GetInt('POOL_MAX_CONNECTIONS', 20);
+LConfig.PoolIdleTimeoutSeconds  := TAppConfig.GetInt('POOL_IDLE_TIMEOUT_SECONDS', 0);   // 0 = desligado (padrão)
+LConfig.PoolIdleCheckIntervalMs := TAppConfig.GetInt('POOL_IDLE_CHECK_INTERVAL_MS', 30000);
+
+LFactory := TFDFactory.Create(LConfig, nil);
+```
+
+`PoolIniConnections`/`PoolMaxConnections` **não têm default** em `TFDConfig` — sem configurar, ficam `0` e o pool não abre conexão nenhuma. `PoolIdleTimeoutSeconds` fecha conexões ociosas no pool além do limite configurado, nunca abaixo de `PoolIniConnections`; fica desligado (comportamento idêntico a antes da opção existir) até ser configurado explicitamente. Campos completos e efeitos colaterais no README, seção "Pool de conexões".
+
+---
+
 ## Anti-padrões a evitar
 
 - Colocar lógica de negócio no Repository — validações vão no Service

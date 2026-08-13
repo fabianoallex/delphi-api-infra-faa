@@ -37,14 +37,24 @@ type
     function GetMaxConnections: Integer;
     function GetWaitMaxAttemps: Integer;
     function GetWaitMilliseconds: Integer;
+    function GetIdleTimeoutSeconds: Integer;
+    function GetIdleCheckIntervalMs: Integer;
     procedure SetIniConnections(AValue: Integer);
     procedure SetMaxConnections(AValue: Integer);
     procedure SetWaitMaxAttemps(AValue: Integer);
     procedure SetWaitMilliseconds(AValue: Integer);
+    procedure SetIdleTimeoutSeconds(AValue: Integer);
+    procedure SetIdleCheckIntervalMs(AValue: Integer);
     property IniConnections: Integer read GetIniConnections write SetIniConnections;
     property MaxConnections: Integer read GetMaxConnections write SetMaxConnections;
     property WaitMaxAttemps: Integer read GetWaitMaxAttemps write SetWaitMaxAttemps;
     property WaitMilliseconds: Integer read GetWaitMilliseconds write SetWaitMilliseconds;
+    /// Segundos que uma conexão pode ficar ociosa no pool antes de ser
+    /// fechada (nunca abaixo de IniConnections). 0 (padrão) = desligado.
+    property IdleTimeoutSeconds: Integer read GetIdleTimeoutSeconds write SetIdleTimeoutSeconds;
+    /// Intervalo entre varreduras de ociosidade. Só importa quando
+    /// IdleTimeoutSeconds > 0. Valores <= 0 caem no padrão (30000ms).
+    property IdleCheckIntervalMs: Integer read GetIdleCheckIntervalMs write SetIdleCheckIntervalMs;
   end;
 
   { TConnectionPoolConfig }
@@ -55,15 +65,22 @@ type
     FMaxConnections: Integer;
     FWaitMaxAttemps: Integer;
     FWaitMilliseconds: Integer;
+    FIdleTimeoutSeconds: Integer;
+    FIdleCheckIntervalMs: Integer;
     function GetIniConnections: Integer;
     function GetMaxConnections: Integer;
     procedure SetIniConnections(AValue: Integer);
     procedure SetMaxConnections(AValue: Integer);
   public
+    constructor Create;
     function GetWaitMaxAttemps: Integer;
     function GetWaitMilliseconds: Integer;
+    function GetIdleTimeoutSeconds: Integer;
+    function GetIdleCheckIntervalMs: Integer;
     procedure SetWaitMaxAttemps(AValue: Integer);
     procedure SetWaitMilliseconds(AValue: Integer);
+    procedure SetIdleTimeoutSeconds(AValue: Integer);
+    procedure SetIdleCheckIntervalMs(AValue: Integer);
   end;
 
   { TConnectionPool }
@@ -78,10 +95,16 @@ type
     FActiveConnections: Integer;
     FWaitMaxAttemps: Integer;
     FWaitMilliseconds: Integer;
+    FIdleTimeoutSeconds: Integer;
+    FIdleCheckIntervalMs: Integer;
+    FIdleSweepThread: TThread;
+    FIdleSweepWake: TEvent;
     procedure CreateInitialConnections;
     procedure IncrementActiveConnections;
     procedure DecrementActiveConnections;
     function NewConnection: IDBConnection;
+    procedure StartIdleSweep;
+    procedure StopIdleSweep;
   protected
     procedure ReleaseConnection(AConn: IDBConnection);
     procedure ReleaseQuery(var AQuery: IQuery);
@@ -94,6 +117,16 @@ type
     function GetPoolSize: Integer;
     function GetWaitMaxAttemps: Integer;
     function GetWaitMilliseconds: Integer;
+    /// Fecha, imediatamente, as conexões ociosas mais antigas do pool que
+    /// ultrapassarem IdleTimeoutSeconds, nunca abaixo de IniConnections.
+    /// A thread de varredura automática chama a versão sem parâmetro
+    /// periodicamente quando IdleTimeoutSeconds > 0.
+    /// Ambas são públicas principalmente para permitir testes determinísticos
+    /// (com IClock fake) sem esperar o intervalo real nem depender da thread
+    /// de fundo — a versão com parâmetro nem precisa de IdleTimeoutSeconds
+    /// configurado (nem, portanto, de nenhuma thread ter sido iniciada).
+    procedure SweepIdleConnections; overload;
+    procedure SweepIdleConnections(AIdleTimeoutSeconds: Integer); overload;
   end;
 
 implementation
@@ -271,6 +304,12 @@ end;
 
 { TConnectionPoolConfig }
 
+constructor TConnectionPoolConfig.Create;
+begin
+  inherited Create;
+  FIdleCheckIntervalMs := 30000; // só importa se IdleTimeoutSeconds > 0
+end;
+
 function TConnectionPoolConfig.GetIniConnections: Integer;
 begin
   Result := FIniConnections;
@@ -313,6 +352,28 @@ begin
   FWaitMilliseconds := AValue;
 end;
 
+function TConnectionPoolConfig.GetIdleTimeoutSeconds: Integer;
+begin
+  Result := FIdleTimeoutSeconds;
+end;
+
+function TConnectionPoolConfig.GetIdleCheckIntervalMs: Integer;
+begin
+  Result := FIdleCheckIntervalMs;
+end;
+
+procedure TConnectionPoolConfig.SetIdleTimeoutSeconds(AValue: Integer);
+begin
+  if AValue >= 0 then
+    FIdleTimeoutSeconds := AValue;
+end;
+
+procedure TConnectionPoolConfig.SetIdleCheckIntervalMs(AValue: Integer);
+begin
+  if AValue > 0 then
+    FIdleCheckIntervalMs := AValue;
+end;
+
 { TConnectionPool }
 
 constructor TConnectionPool.Create(AFactory: IDBFactory; AConfig: IConnectionPoolConfig);
@@ -330,6 +391,8 @@ begin
     FMaxConnections  := AConfig.MaxConnections;
     FWaitMilliseconds := AConfig.WaitMilliseconds;
     FWaitMaxAttemps  := AConfig.WaitMaxAttemps;
+    FIdleTimeoutSeconds := AConfig.IdleTimeoutSeconds;
+    FIdleCheckIntervalMs := AConfig.IdleCheckIntervalMs;
   end
   else
   begin
@@ -337,7 +400,12 @@ begin
     FMaxConnections  := 20;
     FWaitMilliseconds := 20;
     FWaitMaxAttemps  := 50;
+    FIdleTimeoutSeconds := 0; // desligado por padrão
+    FIdleCheckIntervalMs := 30000;
   end;
+
+  if FIdleCheckIntervalMs <= 0 then
+    FIdleCheckIntervalMs := 30000; // config já validava isso, mas o branch "sem AConfig" não
 
   FActiveConnections := 0;
 
@@ -347,10 +415,17 @@ begin
   FLockPool := TCriticalSection.Create;
 
   CreateInitialConnections;
+
+  if FIdleTimeoutSeconds > 0 then
+    StartIdleSweep;
 end;
 
 destructor TConnectionPool.Destroy;
 begin
+  // Precisa parar ANTES de mexer em FPool/FLockPool — senão a thread de
+  // varredura pode disparar em cima de campos já liberados.
+  StopIdleSweep;
+
   // Anula a referência fraca antes do Release automático gerado pelo compilador
   PPointer(@FFactory)^ := nil;
 
@@ -365,6 +440,84 @@ begin
   end;
 
   inherited Destroy;
+end;
+
+procedure TConnectionPool.StartIdleSweep;
+begin
+  // Evento manual-reset: SetEvent no Terminate acorda a thread na hora,
+  // sem esperar o intervalo cheio — mesmo padrão usado no reconnect thread
+  // do pascal-named-pipes-faa (TPipeClient.FReconnectAbort).
+  FIdleSweepWake := TEvent.Create(nil, True, False, '');
+  FIdleSweepThread := TThread.CreateAnonymousThread(
+    procedure
+    begin
+      while FIdleSweepWake.WaitFor(FIdleCheckIntervalMs) = wrTimeout do
+        SweepIdleConnections;
+    end);
+  FIdleSweepThread.FreeOnTerminate := False;
+  FIdleSweepThread.Start;
+end;
+
+procedure TConnectionPool.StopIdleSweep;
+begin
+  if not Assigned(FIdleSweepThread) then
+    Exit;
+
+  FIdleSweepWake.SetEvent;
+  FIdleSweepThread.WaitFor;
+  FreeAndNil(FIdleSweepThread);
+  FreeAndNil(FIdleSweepWake);
+end;
+
+procedure TConnectionPool.SweepIdleConnections;
+begin
+  SweepIdleConnections(FIdleTimeoutSeconds);
+end;
+
+procedure TConnectionPool.SweepIdleConnections(AIdleTimeoutSeconds: Integer);
+var
+  LToClose: TList<IDBConnection>;
+  LItem: TConnectionItem;
+  LConn: IDBConnection;
+begin
+  if AIdleTimeoutSeconds <= 0 then
+    Exit;
+
+  LToClose := TList<IDBConnection>.Create;
+  try
+    // Fase 1 (rápida, sob lock): decidir o que sai. FPool é FIFO por
+    // LastRelease crescente, então o item da frente é sempre o mais antigo —
+    // basta espiar e parar no primeiro que ainda não está ocioso o bastante.
+    FLockPool.Enter;
+    try
+      while (FPool.Count > FIniConnections) and (FPool.Count > 0) do
+      begin
+        LItem := FPool.Peek;
+        if SecondsBetween(TClock.Now, LItem.LastRelease) < AIdleTimeoutSeconds then
+          Break;
+
+        FPool.Dequeue;
+        LToClose.Add(LItem.Connection);
+        Dec(FActiveConnections); // já estamos sob FLockPool; ver DecrementActiveConnections
+      end;
+    finally
+      FLockPool.Leave;
+    end;
+
+    // Fase 2 (lenta, fora do lock): desconectar de fato. Nunca fazer IO de
+    // rede com FLockPool preso — bloquearia todo AcquireConnection/
+    // ReleaseConnection concorrente da aplicação até o Disconnect terminar.
+    for LConn in LToClose do
+    begin
+      try
+        LConn.Disconnect(True);
+      except
+        // ignora — a conexão está sendo descartada de qualquer forma
+      end;
+    end;
+  finally
+    LToClose.Free;
+  end;
 end;
 
 procedure TConnectionPool.CreateInitialConnections;

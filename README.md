@@ -1117,6 +1117,57 @@ A arquitetura é extensível: qualquer componente (Zeos, UniDAC, dbExpress, etc.
 
 ---
 
+## Pool de conexões
+
+O `Db.Connection.Pool` fornece um pool de conexões thread-safe, usado automaticamente por qualquer `IDBFactory` (incluindo o adapter FireDAC). Controla quantas conexões físicas ficam abertas, quanto tempo esperar por uma livre quando o pool está cheio, e — opcionalmente — fecha conexões ociosas depois de um tempo configurável.
+
+### Configuração
+
+Os campos ficam em `IDatabaseConfig` (`TFDConfig` no adapter FireDAC) e são propagados automaticamente para o pool na criação da factory:
+
+```pascal
+LConfig := TFDConfig.Create;
+LConfig.ConnectionParams.Add(...);
+// ...
+
+LConfig.PoolIniConnections      := TAppConfig.GetInt('POOL_INI_CONNECTIONS', 3);
+LConfig.PoolMaxConnections      := TAppConfig.GetInt('POOL_MAX_CONNECTIONS', 20);
+LConfig.PoolWaitMaxAttemps      := TAppConfig.GetInt('POOL_WAIT_MAX_ATTEMPS', 50);
+LConfig.PoolWaitMilliseconds    := TAppConfig.GetInt('POOL_WAIT_MILLISECONDS', 20);
+LConfig.PoolIdleTimeoutSeconds  := TAppConfig.GetInt('POOL_IDLE_TIMEOUT_SECONDS', 0);
+LConfig.PoolIdleCheckIntervalMs := TAppConfig.GetInt('POOL_IDLE_CHECK_INTERVAL_MS', 30000);
+
+LFactory := TFDFactory.Create(LConfig, nil);
+```
+
+### Campos
+
+| Campo | Padrão em `TFDConfig` | Descrição |
+|---|---|---|
+| `PoolIniConnections` | `0` | Conexões físicas abertas na inicialização, mantidas sempre disponíveis |
+| `PoolMaxConnections` | `0` | Teto de conexões físicas simultâneas |
+| `PoolWaitMaxAttemps` | `0` | Tentativas de espera antes de `EPoolTimeoutException` quando o pool está cheio |
+| `PoolWaitMilliseconds` | `0` | Intervalo entre tentativas de espera |
+| `PoolIdleTimeoutSeconds` | `0` (desligado) | Segundos que uma conexão pode ficar ociosa no pool antes de ser fechada. Nunca fecha abaixo de `PoolIniConnections` |
+| `PoolIdleCheckIntervalMs` | `30000` | Intervalo entre varreduras de ociosidade. Só importa quando `PoolIdleTimeoutSeconds > 0` |
+
+> **Atenção:** só `PoolIdleTimeoutSeconds`/`PoolIdleCheckIntervalMs` têm um default útil sem configurar nada (feature desligada, sem efeito colateral). Os outros quatro campos ficam `0` se o projeto não os definir explicitamente — e com `PoolMaxConnections = 0` o pool nunca consegue abrir conexão nenhuma (`AcquireConnection` estoura `EPoolTimeoutException` na primeira chamada). Sempre configure ao menos `PoolIniConnections` e `PoolMaxConnections`.
+
+### Fechamento por inatividade (`PoolIdleTimeoutSeconds`)
+
+Desligado por padrão — comportamento idêntico ao de antes desta opção existir; nenhum projeto existente muda de comportamento sem configurar explicitamente. Quando ligado (`> 0`), uma thread de fundo varre o pool a cada `PoolIdleCheckIntervalMs` e fecha as conexões ociosas mais antigas que ultrapassarem o limite, sempre parando em `PoolIniConnections` — nunca fecha abaixo do piso configurado. Útil para reduzir conexões físicas abertas em períodos de baixo tráfego (madrugada, fins de semana).
+
+```env
+POOL_INI_CONNECTIONS=3
+POOL_MAX_CONNECTIONS=20
+POOL_IDLE_TIMEOUT_SECONDS=300
+POOL_IDLE_CHECK_INTERVAL_MS=30000
+```
+
+Efeito colateral esperado: depois de um período ocioso longo, a primeira rajada de tráfego pós-ociosidade cria várias conexões físicas de uma vez (o pool foi esvaziado até o piso) — latência maior nesses primeiros requests, geralmente aceitável.
+
+---
+
 ## Mensageria (IMessageConsumer / IMessagePublisher)
 
 O módulo `src/Messaging/Messaging.Interfaces.pas` define o contrato de mensageria agnóstico de protocolo e broker. O projeto de negócio implementa apenas `IMessageHandler` — o que fazer quando a mensagem chega. Adapters concretos (AMQP, STOMP, etc.) implementam `IMessageConsumer` e `IMessagePublisher`.

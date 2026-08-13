@@ -8,6 +8,7 @@ uses
   System.Classes,
   System.Generics.Collections,
   System.Threading,
+  System.Diagnostics,
   Db.Interfaces,
   Db.Connection.Pool,
   Db.SqlLoader,
@@ -175,6 +176,12 @@ type
     [Test] procedure Test_Pool_ConexaoInativa120s;
     [Test] procedure Test_Pool_ConexaoInativaFalha;
     [Test] procedure Test_Pool_Concorrencia;
+    [Test] procedure Test_Pool_IdleTimeout_Desligado_NaoEvictaNada;
+    [Test] procedure Test_Pool_IdleTimeout_EvictaSoOsMaisAntigos;
+    [Test] procedure Test_Pool_IdleTimeout_RespeitaPiso_IniConnections;
+    [Test] procedure Test_Pool_IdleTimeoutConfig_ValoresPadraoEValidacao;
+    [Test] procedure Test_Pool_IdleSweep_DestroyNaoTrava;
+    [Test] procedure Test_Pool_Concorrencia_ComIdleSweepAtivo;
   private
     procedure MaxConnectionsEstoura_Method;
   end;
@@ -889,6 +896,277 @@ begin
       'Todas as conexões físicas devem ter voltado ao pool — nenhum vazamento'
     );
 
+    Assert.IsTrue(
+      LPool.GetActiveConnections <= MAX_CONNS,
+      'O pool nunca deve ter criado mais conexões do que o limite máximo'
+    );
+  finally
+    TSleep.Reset;
+  end;
+end;
+
+{ TPoolTests — idle timeout }
+
+procedure TPoolTests.Test_Pool_IdleTimeout_Desligado_NaoEvictaNada;
+var
+  LConfig: IConnectionPoolConfig;
+  LFactory: IDBFactory;
+  // LPoolIntf segura a referência contada do início ao fim (mesmo padrão dos
+  // testes originais, ex. Test_Pool_AquireELibera) — sem isso, os ciclos de
+  // Acquire/libera abaixo derrubam a contagem de TConnectionPool a zero no
+  // meio do teste e o _Release automático do TInterfacedObject destrói o
+  // pool ali mesmo; o LPool.Free explícito no final vira free duplo.
+  // LPool é só uma "view" da classe concreta, pra chamar SweepIdleConnections
+  // (que não faz parte de IDBConnectionPool) — nunca dar Free nela.
+  LPoolIntf: IDBConnectionPool;
+  LPool: TConnectionPool;
+  LClock: TFakeClock;
+  LConn1, LConn2: IDBConnection;
+  BaseTime: TDateTime;
+begin
+  BaseTime := StrToDateTime('28/12/2025 11:44:18');
+  LClock := TFakeClock.Create;
+  LClock.SetDefaultTime(BaseTime);
+  TClock.SetClock(LClock);
+  try
+    // IdleTimeoutSeconds não configurado -> fica 0 = desligado (padrão)
+    LConfig := TConnectionPoolConfig.Create;
+    LConfig.IniConnections := 0;
+    LConfig.MaxConnections := 10;
+
+    LFactory := TDBFactoryMock.Create;
+    LPoolIntf := TConnectionPool.Create(LFactory, LConfig);
+    LPool := LPoolIntf as TConnectionPool;
+
+    LConn1 := LPoolIntf.AcquireConnection;
+    LConn2 := LPoolIntf.AcquireConnection;
+    LConn1 := nil;
+    LConn2 := nil; // 2 conexões ociosas no pool
+
+    Assert.AreEqual(2, LPoolIntf.GetPoolSize, 'Pré-condição: 2 conexões ociosas');
+
+    LClock.SetDefaultTime(BaseTime + (100000 / 86400)); // bem além de qualquer limite razoável
+    LPool.SweepIdleConnections;
+
+    Assert.AreEqual(2, LPoolIntf.GetPoolSize,
+      'IdleTimeoutSeconds=0 (padrão): SweepIdleConnections não deve remover nada');
+    Assert.AreEqual(2, LPoolIntf.GetActiveConnections,
+      'IdleTimeoutSeconds=0 (padrão): contagem de ativas não deve mudar');
+  finally
+    TClock.Reset;
+  end;
+end;
+
+procedure TPoolTests.Test_Pool_IdleTimeout_EvictaSoOsMaisAntigos;
+var
+  LConfig: IConnectionPoolConfig;
+  LFactory: IDBFactory;
+  LPoolIntf: IDBConnectionPool; // ver comentário em Test_Pool_IdleTimeout_Desligado_NaoEvictaNada
+  LPool: TConnectionPool;
+  LClock: TFakeClock;
+  LConn1, LConn2, LConn3: IDBConnection;
+  BaseTime: TDateTime;
+begin
+  BaseTime := StrToDateTime('28/12/2025 11:44:18');
+  LClock := TFakeClock.Create;
+  LClock.SetDefaultTime(BaseTime);
+  TClock.SetClock(LClock);
+  try
+    // IdleTimeoutSeconds fica 0 (padrão) de propósito: assim NENHUMA thread
+    // de varredura é criada — o teste chama SweepIdleConnections(60)
+    // diretamente, na thread do próprio teste, com TFakeClock. Determinístico,
+    // sem concorrência nenhuma envolvida.
+    LConfig := TConnectionPoolConfig.Create;
+    LConfig.IniConnections := 0;
+    LConfig.MaxConnections := 10;
+
+    LFactory := TDBFactoryMock.Create;
+    LPoolIntf := TConnectionPool.Create(LFactory, LConfig);
+    LPool := LPoolIntf as TConnectionPool;
+
+    LConn1 := LPoolIntf.AcquireConnection;
+    LConn2 := LPoolIntf.AcquireConnection;
+    LConn3 := LPoolIntf.AcquireConnection;
+    Assert.AreEqual(3, LPoolIntf.GetActiveConnections, 'Pré-condição: 3 conexões ativas');
+
+    LClock.SetDefaultTime(BaseTime);
+    LConn1 := nil; // LastRelease = T0        (65s de idade no sweep abaixo)
+    LClock.SetDefaultTime(BaseTime + (10 / 86400));
+    LConn2 := nil; // LastRelease = T0+10s     (55s de idade — NÃO deve sair)
+    LClock.SetDefaultTime(BaseTime + (20 / 86400));
+    LConn3 := nil; // LastRelease = T0+20s     (45s de idade — NÃO deve sair)
+
+    Assert.AreEqual(3, LPoolIntf.GetPoolSize, 'Pré-condição: 3 conexões ociosas no pool');
+
+    LClock.SetDefaultTime(BaseTime + (65 / 86400)); // "agora" = T0+65s
+    LPool.SweepIdleConnections(60);
+
+    Assert.AreEqual(2, LPoolIntf.GetPoolSize,
+      'Só a conexão liberada em T0 (65s de idade, >=60) deve ser removida');
+    Assert.AreEqual(2, LPoolIntf.GetActiveConnections,
+      'FActiveConnections deve acompanhar a remoção');
+  finally
+    TClock.Reset;
+  end;
+end;
+
+procedure TPoolTests.Test_Pool_IdleTimeout_RespeitaPiso_IniConnections;
+var
+  LConfig: IConnectionPoolConfig;
+  LFactory: IDBFactory;
+  LPoolIntf: IDBConnectionPool; // ver comentário em Test_Pool_IdleTimeout_Desligado_NaoEvictaNada
+  LPool: TConnectionPool;
+  LClock: TFakeClock;
+  LConn1, LConn2, LConn3: IDBConnection;
+  BaseTime: TDateTime;
+begin
+  BaseTime := StrToDateTime('28/12/2025 11:44:18');
+  LClock := TFakeClock.Create;
+  LClock.SetDefaultTime(BaseTime);
+  TClock.SetClock(LClock);
+  try
+    // IdleTimeoutSeconds fica 0 (padrão) de propósito — ver comentário no
+    // teste Test_Pool_IdleTimeout_EvictaSoOsMaisAntigos.
+    LConfig := TConnectionPoolConfig.Create;
+    LConfig.IniConnections := 2; // piso: nunca evictar abaixo disso
+    LConfig.MaxConnections := 10;
+
+    LFactory := TDBFactoryMock.Create;
+    LPoolIntf := TConnectionPool.Create(LFactory, LConfig);
+    LPool := LPoolIntf as TConnectionPool;
+
+    // CreateInitialConnections já deixou 2 ociosas (LastRelease = BaseTime).
+    // Esvazia as 2 (reuso) e força a criação de uma 3ª nova, depois libera
+    // as 3 — pra ter 3 conexões ociosas de verdade, todas velhas o bastante.
+    LConn1 := LPoolIntf.AcquireConnection; // reusa uma das 2 do pool
+    LConn2 := LPoolIntf.AcquireConnection; // reusa a outra
+    LConn3 := LPoolIntf.AcquireConnection; // pool vazio agora -> cria nova (3ª física)
+    LConn1 := nil;
+    LConn2 := nil;
+    LConn3 := nil;
+    Assert.AreEqual(3, LPoolIntf.GetPoolSize, 'Pré-condição: 3 conexões ociosas');
+
+    // Todas MUITO além do limite de 60s — sem piso, evictaria tudo.
+    LClock.SetDefaultTime(BaseTime + (100000 / 86400));
+    LPool.SweepIdleConnections(60);
+
+    Assert.AreEqual(2, LPoolIntf.GetPoolSize,
+      'Nunca deve evictar abaixo de IniConnections, mesmo com todas idosas');
+    Assert.AreEqual(2, LPoolIntf.GetActiveConnections,
+      'FActiveConnections deve parar no piso também');
+  finally
+    TClock.Reset;
+  end;
+end;
+
+procedure TPoolTests.Test_Pool_IdleTimeoutConfig_ValoresPadraoEValidacao;
+var
+  LConfig: IConnectionPoolConfig;
+begin
+  LConfig := TConnectionPoolConfig.Create;
+
+  Assert.AreEqual(0, LConfig.IdleTimeoutSeconds,
+    'Padrão de IdleTimeoutSeconds deve ser 0 (desligado)');
+  Assert.AreEqual(30000, LConfig.IdleCheckIntervalMs,
+    'Padrão de IdleCheckIntervalMs deve ser 30000ms');
+
+  LConfig.IdleCheckIntervalMs := 0;
+  Assert.AreEqual(30000, LConfig.IdleCheckIntervalMs,
+    'IdleCheckIntervalMs <= 0 deve ser ignorado (mantém o padrão)');
+
+  LConfig.IdleCheckIntervalMs := -5;
+  Assert.AreEqual(30000, LConfig.IdleCheckIntervalMs,
+    'IdleCheckIntervalMs negativo deve ser ignorado');
+
+  LConfig.IdleCheckIntervalMs := 5000;
+  Assert.AreEqual(5000, LConfig.IdleCheckIntervalMs,
+    'IdleCheckIntervalMs válido deve ser aceito');
+
+  LConfig.IdleTimeoutSeconds := -1;
+  Assert.AreEqual(0, LConfig.IdleTimeoutSeconds,
+    'IdleTimeoutSeconds negativo deve ser ignorado');
+
+  LConfig.IdleTimeoutSeconds := 45;
+  Assert.AreEqual(45, LConfig.IdleTimeoutSeconds,
+    'IdleTimeoutSeconds válido (>=0) deve ser aceito');
+end;
+
+procedure TPoolTests.Test_Pool_IdleSweep_DestroyNaoTrava;
+var
+  LConfig: IConnectionPoolConfig;
+  LFactory: IDBFactory;
+  LPool: TConnectionPool;
+  LStopwatch: TStopwatch;
+begin
+  // Sem TFakeClock/TFakeSleep aqui de propósito: quer a thread de varredura
+  // REAL rodando, pra provar que Destroy não trava nem AV mesmo com ela viva.
+  LConfig := TConnectionPoolConfig.Create;
+  LConfig.IniConnections := 1;
+  LConfig.MaxConnections := 10;
+  LConfig.IdleTimeoutSeconds := 1;
+  LConfig.IdleCheckIntervalMs := 5000; // não importa: SetEvent acorda na hora, não espera isso
+
+  LFactory := TDBFactoryMock.Create;
+  LPool := TConnectionPool.Create(LFactory, LConfig);
+
+  LStopwatch := TStopwatch.StartNew;
+  LPool.Free;
+  LStopwatch.Stop;
+
+  Assert.IsTrue(LStopwatch.ElapsedMilliseconds < 2000,
+    Format('Destroy com sweep ativo deveria ser quase instantâneo (SetEvent), levou %dms',
+      [LStopwatch.ElapsedMilliseconds]));
+end;
+
+procedure TPoolTests.Test_Pool_Concorrencia_ComIdleSweepAtivo;
+const
+  NUM_THREADS = 20;
+  ITERACOES   = 50;
+  MAX_CONNS   = 5;
+var
+  LConfig: IConnectionPoolConfig;
+  LFactory: IDBFactory;
+  LPool: IDBConnectionPool;
+  LThreads: array[1..NUM_THREADS] of TPoolStressThread;
+  I: Integer;
+begin
+  // Igual Test_Pool_Concorrencia, mas com a thread de varredura REAL ativa e
+  // rodando em paralelo (intervalo curto) — cobre o lock entre
+  // Acquire/Release concorrentes e SweepIdleConnections ao mesmo tempo.
+  TSleep.SetSleep(TFakeSleep.Create);
+  try
+    LConfig := TConnectionPoolConfig.Create;
+    LConfig.IniConnections  := 0;
+    LConfig.MaxConnections  := MAX_CONNS;
+    LConfig.WaitMaxAttemps  := 2000;
+    LConfig.WaitMilliseconds := 0;
+    LConfig.IdleTimeoutSeconds := 1;
+    LConfig.IdleCheckIntervalMs := 5;
+
+    LFactory := TDBFactoryMock.Create;
+    LPool := TConnectionPool.Create(LFactory, LConfig);
+
+    for I := 1 to NUM_THREADS do
+      LThreads[I] := TPoolStressThread.Create(LPool, ITERACOES);
+
+    for I := 1 to NUM_THREADS do
+      LThreads[I].Start;
+
+    for I := 1 to NUM_THREADS do
+    begin
+      LThreads[I].WaitFor;
+      Assert.IsFalse(
+        LThreads[I].ErrorOccurred,
+        Format('Thread %d reportou erro: %s', [I, LThreads[I].ErrorMessage])
+      );
+      LThreads[I].Free;
+    end;
+
+    Assert.AreEqual(
+      LPool.GetActiveConnections,
+      LPool.GetPoolSize,
+      'Mesmo com sweep concorrente, toda conexão física deve estar ou ativa ou no pool — sem vazamento'
+    );
     Assert.IsTrue(
       LPool.GetActiveConnections <= MAX_CONNS,
       'O pool nunca deve ter criado mais conexões do que o limite máximo'

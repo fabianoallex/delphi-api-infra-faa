@@ -219,6 +219,8 @@ type
     FPoolWaitMilliseconds: Integer;
     FPoolMaxConnections: Integer;
     FPoolIniConnections: Integer;
+    FPoolIdleTimeoutSeconds: Integer;
+    FPoolIdleCheckIntervalMs: Integer;
   public
     constructor Create;
     destructor Destroy; override;
@@ -226,11 +228,15 @@ type
     function GetPoolMaxConnections: Integer;
     function GetPoolWaitMaxAttemps: Integer;
     function GetPoolWaitMilliseconds: Integer;
+    function GetPoolIdleTimeoutSeconds: Integer;
+    function GetPoolIdleCheckIntervalMs: Integer;
     function GetSQLDialect: string;
     procedure SetPoolIniConnections(AValue: Integer);
     procedure SetPoolMaxConnections(AValue: Integer);
     procedure SetPoolWaitMaxAttemps(AValue: Integer);
     procedure SetPoolWaitMilliseconds(AValue: Integer);
+    procedure SetPoolIdleTimeoutSeconds(AValue: Integer);
+    procedure SetPoolIdleCheckIntervalMs(AValue: Integer);
     procedure SetSQLDialect(AValue: string);
     // Parâmetros de conexão FireDAC em formato chave=valor
     // Ex: DriverID=FB, Database=..., User_Name=..., Password=...
@@ -1132,6 +1138,7 @@ end;
 constructor TFDConfig.Create;
 begin
   FConnectionParams := TStringList.Create;
+  FPoolIdleCheckIntervalMs := 30000; // só importa se PoolIdleTimeoutSeconds > 0
 end;
 
 destructor TFDConfig.Destroy;
@@ -1160,6 +1167,16 @@ begin
   Result := FPoolWaitMilliseconds;
 end;
 
+function TFDConfig.GetPoolIdleTimeoutSeconds: Integer;
+begin
+  Result := FPoolIdleTimeoutSeconds;
+end;
+
+function TFDConfig.GetPoolIdleCheckIntervalMs: Integer;
+begin
+  Result := FPoolIdleCheckIntervalMs;
+end;
+
 function TFDConfig.GetSQLDialect: string;
 begin
   Result := FSQLDialect;
@@ -1183,6 +1200,18 @@ end;
 procedure TFDConfig.SetPoolWaitMilliseconds(AValue: Integer);
 begin
   FPoolWaitMilliseconds := AValue;
+end;
+
+procedure TFDConfig.SetPoolIdleTimeoutSeconds(AValue: Integer);
+begin
+  if AValue >= 0 then
+    FPoolIdleTimeoutSeconds := AValue;
+end;
+
+procedure TFDConfig.SetPoolIdleCheckIntervalMs(AValue: Integer);
+begin
+  if AValue > 0 then
+    FPoolIdleCheckIntervalMs := AValue;
 end;
 
 procedure TFDConfig.SetSQLDialect(AValue: string);
@@ -1251,6 +1280,8 @@ begin
   LPoolConfig.WaitMilliseconds := FConfig.PoolWaitMilliseconds;
   LPoolConfig.IniConnections  := FConfig.PoolIniConnections;
   LPoolConfig.MaxConnections  := FConfig.PoolMaxConnections;
+  LPoolConfig.IdleTimeoutSeconds  := FConfig.PoolIdleTimeoutSeconds;
+  LPoolConfig.IdleCheckIntervalMs := FConfig.PoolIdleCheckIntervalMs;
 
   FPool := TConnectionPool.Create(Self, LPoolConfig);
   FSqlLoader := TSQLLoader.Create((AConfig as TFDConfig).SQLDirectory);

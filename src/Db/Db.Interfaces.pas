@@ -257,16 +257,27 @@ type
     function GetPoolMaxConnections: Integer;
     function GetPoolWaitMaxAttemps: Integer;
     function GetPoolWaitMilliseconds: Integer;
+    function GetPoolIdleTimeoutSeconds: Integer;
+    function GetPoolIdleCheckIntervalMs: Integer;
     function GetSQLDialect: string;
     procedure SetPoolIniConnections(AValue: Integer);
     procedure SetPoolMaxConnections(AValue: Integer);
     procedure SetPoolWaitMaxAttemps(AValue: Integer);
     procedure SetPoolWaitMilliseconds(AValue: Integer);
+    procedure SetPoolIdleTimeoutSeconds(AValue: Integer);
+    procedure SetPoolIdleCheckIntervalMs(AValue: Integer);
     procedure SetSQLDialect(AValue: string);
     property PoolWaitMaxAttemps: Integer read GetPoolWaitMaxAttemps write SetPoolWaitMaxAttemps;
     property PoolWaitMilliseconds: Integer read GetPoolWaitMilliseconds write SetPoolWaitMilliseconds;
     property PoolMaxConnections: Integer read GetPoolMaxConnections write SetPoolMaxConnections;
     property PoolIniConnections: Integer read GetPoolIniConnections write SetPoolIniConnections;
+    /// Segundos que uma conexão pode ficar ociosa no pool antes de ser
+    /// fechada (nunca abaixo de PoolIniConnections). 0 (padrão) = desligado,
+    /// comportamento idêntico ao de antes desta propriedade existir.
+    property PoolIdleTimeoutSeconds: Integer read GetPoolIdleTimeoutSeconds write SetPoolIdleTimeoutSeconds;
+    /// Intervalo entre varreduras de ociosidade. Só importa quando
+    /// PoolIdleTimeoutSeconds > 0. Valores <= 0 caem no padrão (30000ms).
+    property PoolIdleCheckIntervalMs: Integer read GetPoolIdleCheckIntervalMs write SetPoolIdleCheckIntervalMs;
     property SQLDialect: string read GetSQLDialect write SetSQLDialect;
   end;
 
