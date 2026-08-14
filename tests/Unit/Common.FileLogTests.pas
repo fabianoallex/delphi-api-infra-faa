@@ -45,6 +45,11 @@ type
     [Test] procedure Test_FileLog_Destroy_ComThreadAtiva_NaoTrava;
     [Test] procedure Test_FileLog_ThreadReal_FlushAutomatico;
     [Test] procedure Test_FileLog_Concorrencia;
+    [Test] procedure Test_LogTruncate_ConteudoCurto_NaoAltera;
+    [Test] procedure Test_LogTruncate_NoLimiteExato_NaoAltera;
+    [Test] procedure Test_LogTruncate_ConteudoLongo_CortaEAnexaInfo;
+    [Test] procedure Test_LogTruncate_MesmoConteudo_MesmoHash;
+    [Test] procedure Test_LogTruncate_ConteudoDiferente_HashDiferente;
   end;
 
 implementation
@@ -379,6 +384,71 @@ begin
     LLogger := nil;
     CleanupDir(LDir);
   end;
+end;
+
+{ TFileLogTests — TLogTruncate }
+
+procedure TFileLogTests.Test_LogTruncate_ConteudoCurto_NaoAltera;
+var
+  LContent: string;
+begin
+  LContent := 'mensagem pequena';
+  Assert.AreEqual(LContent, TLogTruncate.Apply(LContent, 250),
+    'Conteudo menor que o limite deve voltar inalterado');
+end;
+
+procedure TFileLogTests.Test_LogTruncate_NoLimiteExato_NaoAltera;
+var
+  LContent: string;
+begin
+  LContent := StringOfChar('x', 250);
+  Assert.AreEqual(LContent, TLogTruncate.Apply(LContent, 250),
+    'Conteudo com tamanho exatamente igual ao limite nao deve ser cortado');
+end;
+
+procedure TFileLogTests.Test_LogTruncate_ConteudoLongo_CortaEAnexaInfo;
+var
+  LContent, LResult: string;
+begin
+  LContent := StringOfChar('a', 4832);
+  LResult := TLogTruncate.Apply(LContent, 250);
+
+  Assert.IsTrue(LResult.StartsWith(StringOfChar('a', 250)),
+    'Resultado deve comecar com os primeiros 250 caracteres do conteudo original');
+  Assert.IsTrue(LResult.Contains('tamanho_total=4832'),
+    'Resultado deve informar o tamanho total do conteudo original');
+  Assert.IsTrue(LResult.Contains('hash='),
+    'Resultado deve conter um hash do conteudo original');
+  Assert.IsTrue(Length(LResult) < Length(LContent),
+    'Resultado cortado deve ser menor que o conteudo original');
+end;
+
+procedure TFileLogTests.Test_LogTruncate_MesmoConteudo_MesmoHash;
+var
+  LContent, LResult1, LResult2: string;
+begin
+  LContent := StringOfChar('b', 1000);
+  LResult1 := TLogTruncate.Apply(LContent, 250);
+  LResult2 := TLogTruncate.Apply(LContent, 250);
+
+  Assert.AreEqual(LResult1, LResult2,
+    'Mesmo conteudo deve produzir sempre o mesmo resultado (hash deterministico)');
+end;
+
+procedure TFileLogTests.Test_LogTruncate_ConteudoDiferente_HashDiferente;
+var
+  LContent1, LContent2, LResult1, LResult2: string;
+begin
+  // Mesmo prefixo visivel (250 chars) e mesmo tamanho total (254) nos dois —
+  // qualquer diferenca no resultado só pode vir do hash, provando que ele
+  // reflete o conteudo completo, nao só a parte truncada.
+  LContent1 := StringOfChar('c', 250) + 'AAAA';
+  LContent2 := StringOfChar('c', 250) + 'BBBB';
+  LResult1 := TLogTruncate.Apply(LContent1, 250);
+  LResult2 := TLogTruncate.Apply(LContent2, 250);
+
+  Assert.AreNotEqual(LResult1, LResult2,
+    'Conteudos diferentes com mesmo prefixo e tamanho devem produzir hashes diferentes');
 end;
 
 initialization

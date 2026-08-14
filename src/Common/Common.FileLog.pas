@@ -50,6 +50,15 @@ type
     function PendingCount: Integer;
   end;
 
+  { TLogTruncate — corta conteúdo grande antes de logar (ex: corpo de mensagem
+    de fila), sem perder rastreabilidade: anexa o tamanho total e um hash curto
+    do conteúdo completo, pra permitir correlacionar duas linhas truncadas sem
+    guardar o conteúdo inteiro em lugar nenhum. }
+  TLogTruncate = class
+  public
+    class function Apply(const AContent: string; AMaxLen: Integer = 250): string;
+  end;
+
 /// Log assíncrono em arquivo, separado por categoria e por tamanho.
 ///
 /// FileLog só enfileira a linha (nunca bloqueia a thread chamadora esperando
@@ -65,6 +74,7 @@ type
 /// Uso:
 ///   FileLog('pipe', 'Consulta NFE: loja=%s chave=%s', [LLoja, LChave]);
 ///   FileLog('amqp', 'Mensagem processada');
+///   FileLog('rabbitmq', 'Mensagem recebida: ' + TLogTruncate.Apply(ADelivery.BodyAsText));
 ///
 /// Configuração (.env / TAppConfig):
 ///   LOG_DIR                 diretório dos arquivos de log (padrão: logs)
@@ -79,8 +89,20 @@ implementation
 uses
   System.SysUtils,
   System.IOUtils,
+  System.Hash,
   Common.Config,
   Common.SafeLog;
+
+{ TLogTruncate }
+
+class function TLogTruncate.Apply(const AContent: string; AMaxLen: Integer): string;
+begin
+  if Length(AContent) <= AMaxLen then
+    Exit(AContent);
+
+  Result := Copy(AContent, 1, AMaxLen) + Format(' [cortado; tamanho_total=%d; hash=%s]',
+    [Length(AContent), Copy(THashMD5.GetHashString(AContent), 1, 8)]);
+end;
 
 { TFileLogger }
 
