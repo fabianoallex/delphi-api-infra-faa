@@ -15,7 +15,8 @@ uses
   Db.SqlLoader,
   Db.SqlDialect,
   Common.Helpers,
-  Common.Optionals;
+  Common.Optionals,
+  Common.SafeLog;
 
 type
 
@@ -1359,7 +1360,7 @@ begin
     Result := True;
   except
     on E: Exception do
-      Writeln('>>> Conexão morta detectada: ' + E.Message);
+      SafeWriteln('>>> Conexão morta detectada: ' + E.Message);
   end;
 end;
 

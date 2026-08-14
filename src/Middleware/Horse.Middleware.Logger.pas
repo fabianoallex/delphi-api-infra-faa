@@ -37,7 +37,8 @@ implementation
 uses
   System.SysUtils,
   System.Diagnostics,
-  Horse;
+  Horse,
+  Common.SafeLog;
 
 function ExtractLogIP(Req: THorseRequest): string;
 var
@@ -94,7 +95,7 @@ begin
         if Assigned(LOnLog) then
           LOnLog(LLine)
         else
-          Writeln(LLine);
+          SafeWriteln(LLine);
       end;
     end;
 end;
