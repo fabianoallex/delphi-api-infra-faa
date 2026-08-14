@@ -77,7 +77,7 @@ type
   // --- Produto: classe com campos Optional ---
 
   IProduto = interface
-    ['{1A2B3C4D-5E6F-4789-ABCD-EF0123456789}']
+    ['{D1EAA337-F502-481D-ABD5-7CE9343EBEDF}']
     function GetNome: IOptNullString;
     procedure SetNome(AValue: IOptNullString);
     function GetPreco: IOptNullDouble;
@@ -130,7 +130,7 @@ type
   // --- Produto2: campos Int64, Currency, DateTime, Guid ---
 
   IProduto2 = interface
-    ['{AABBCCDD-EE11-2233-4455-667788990011}']
+    ['{7C35B80F-0104-4400-9C57-8779CC84724A}']
     function GetCodigoBanco: IOptNullInt64;
     procedure SetCodigoBanco(AValue: IOptNullInt64);
     function GetPrecoUnit: IOptNullCurrency;
@@ -169,7 +169,7 @@ type
   // --- Arrays ---
 
   IListaTags = interface
-    ['{DEADBEEF-CAFE-BABE-1234-567890ABCDEF}']
+    ['{0E2BE46A-1DFB-44D1-9F06-211DED790427}']
     function GetTags: TArray<string>;
     procedure SetTags(AValue: TArray<string>);
     function GetIds: TArray<Integer>;

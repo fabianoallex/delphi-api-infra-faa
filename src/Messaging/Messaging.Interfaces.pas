@@ -29,7 +29,7 @@ type
   end;
 
   IMessagePayload = interface
-    ['{A3F1C2D4-B5E6-4F78-9A0B-C1D2E3F4A5B6}']
+    ['{C4D949FE-2C33-4481-9814-AC3299B5849A}']
     function GetBody: string;
     function GetRoutingKey: string;
     function GetHeader(const AKey: string): string;
@@ -38,12 +38,12 @@ type
   end;
 
   IMessageHandler = interface
-    ['{B4E2D3C5-A6F7-4089-0B1C-D2E3F4A5B6C7}']
+    ['{BAFF6F9A-C377-405E-BB79-AE6393429F6A}']
     procedure Handle(const APayload: IMessagePayload);
   end;
 
   IMessageConsumer = interface
-    ['{C5F3E4D6-B7A8-4190-1C2D-E3F4A5B6C7D8}']
+    ['{E66DAB5C-2F44-43C7-83DC-EAF25F6A3143}']
     procedure Subscribe(const AQueue: string; const AHandler: IMessageHandler);
     procedure Start;
     procedure Stop;
@@ -51,7 +51,7 @@ type
   end;
 
   IMessagePublisher = interface
-    ['{D6A4F5E7-C8B9-4201-2D3E-F4A5B6C7D8E9}']
+    ['{2F7D889A-4A97-40D5-AA5F-FFACA3800A7A}']
     procedure Publish(const AExchange, ARoutingKey, ABody: string);
   end;
 
@@ -61,7 +61,7 @@ type
     projeto de negócio precise referenciar o adapter diretamente. }
 
   IMessagingFactory = interface
-    ['{E7B5A6D8-D9CA-4312-3E4F-A5B6C7D8E9FA}']
+    ['{DB3CA3AB-DDD6-45F1-BDF1-CF34CD5A86E2}']
     function CreateConsumer(const AConfig: TMessagingConfig): IMessageConsumer;
     function CreatePublisher(const AConfig: TMessagingConfig): IMessagePublisher;
   end;

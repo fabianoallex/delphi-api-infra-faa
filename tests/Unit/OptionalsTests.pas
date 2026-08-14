@@ -11,7 +11,7 @@ uses
 
 type
   IMyTest = interface
-    ['{74637A07-C1B3-41D9-BE83-8393D4C0CA12}']
+    ['{6AA3D079-22E0-49D9-942D-CBA12645C0DE}']
     function GetText: string;
     procedure SetText(AValue: string);
     property Text: string read GetText write SetText;

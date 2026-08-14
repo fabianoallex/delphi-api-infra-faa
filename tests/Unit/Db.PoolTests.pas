@@ -19,7 +19,7 @@ type
   { ITestableTransaction — extensão de teste para verificar comandos gravados }
 
   ITestableTransaction = interface(ITransaction)
-    ['{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}']
+    ['{AEB38845-ABBF-4DC2-808F-2EACAC280440}']
     function GetCommands: TStringList;
     function GetCommitCount: Integer;
     function GetRollbackCount: Integer;

@@ -10,7 +10,7 @@ type
   /// Interface da janela deslizante de rate limiting.
   /// Separada do middleware Horse para permitir testes unitários sem dependência de Horse.
   IRateLimitState = interface
-    ['{4A2E8F1C-9B3D-4C7A-8E5F-1D6A2B3C4D5E}']
+    ['{1D76258F-A73D-4B6A-AEE1-7EB316213BAC}']
     procedure CheckAndRecord(const AKey: string; ALimit, AWindowSeconds: Integer;
       out ARemaining: Integer; out AResetUnix: Int64; out AExceeded: Boolean);
   end;

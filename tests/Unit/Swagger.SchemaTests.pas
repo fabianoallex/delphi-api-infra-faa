@@ -28,7 +28,7 @@ uses
 type
   // Tipos locais isolados — GUIDs únicos, sem dependência de domínio
   ISchemaTestInsert = interface(IInsertDTOBase)
-    ['{AABB1100-CC22-DD33-EE44-FF5566770001}']
+    ['{C4CA4F72-9C03-493F-9930-6A5FB5749AB0}']
     function GetNome: string;
     function GetCodigo: Integer;
     property Nome: string read GetNome;

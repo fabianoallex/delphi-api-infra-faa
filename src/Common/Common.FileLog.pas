@@ -14,7 +14,7 @@ type
   end;
 
   IFileLogger = interface
-    ['{7C1E1F8A-2B3D-4E5F-9A6B-D4E5F6A7B8C9}']
+    ['{759D3123-E813-48A6-9F81-712D5690D261}']
     procedure Log(const ACategory, AText: string); overload;
     procedure Log(const ACategory, AFormatStr: string; const AArgs: array of const); overload;
     procedure FlushNow;

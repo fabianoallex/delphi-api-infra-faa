@@ -14,23 +14,23 @@ type
   // ---------------------------------------------------------------------------
 
   IDTOBase = interface
-    ['{3A1B2C4D-5E6F-7A8B-9C0D-1E2F3A4B5C6D}']
+    ['{5738C3E0-3925-4858-89DE-1B6437EA086E}']
   end;
 
   IResponseDTOBase = interface(IDTOBase)
-    ['{7F8E9D0C-1B2A-3C4D-5E6F-7A8B9C0D1E2F}']
+    ['{BE596369-18D4-4DA7-BE51-01CB1516B932}']
   end;
 
   IInsertDTOBase = interface(IDTOBase)
-    ['{2D3E4F5A-6B7C-8D9E-0F1A-2B3C4D5E6F7A}']
+    ['{4FAB81C8-FF51-41AD-A83B-DF17682ECC4F}']
   end;
 
   IUpdateDTOBase = interface(IDTOBase)
-    ['{8C9D0E1F-2A3B-4C5D-6E7F-8A9B0C1D2E3F}']
+    ['{78817786-8D66-4138-954A-1D830156DB0A}']
   end;
 
   IDeleteDTOBase = interface(IDTOBase)
-    ['{4E5F6A7B-8C9D-0E1F-2A3B-4C5D6E7F8A9B}']
+    ['{FAB344F8-6C20-479A-B2F4-A4BFF9C80734}']
   end;
 
   // ---------------------------------------------------------------------------
@@ -40,7 +40,7 @@ type
   // ---------------------------------------------------------------------------
 
   IFindPaginationDTOBase = interface(IDTOBase)
-    ['{1F2A3B4C-5D6E-7F8A-9B0C-1D2E3F4A5B6C}']
+    ['{8578DC7F-18F2-4DD3-9051-48EE1F43B04E}']
     function GetPage: IOptInteger;
     function GetLimit: IOptInteger;
     function GetOrderBy: IOptString;
@@ -61,7 +61,7 @@ type
   // ---------------------------------------------------------------------------
 
   IResponsePaginationDTOBase = interface(IResponseDTOBase)
-    ['{6C7D8E9F-0A1B-2C3D-4E5F-6A7B8C9D0E1F}']
+    ['{F9DCCB8D-6315-45A9-8257-402924DC43E2}']
     function GetPage: Integer;
     function GetLimit: Integer;
     function GetTotal: Integer;
