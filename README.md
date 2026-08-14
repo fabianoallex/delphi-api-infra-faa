@@ -1168,6 +1168,54 @@ Efeito colateral esperado: depois de um período ocioso longo, a primeira rajada
 
 ---
 
+## Logging
+
+### Console (`Common.SafeLog`)
+
+`Writeln` direto no console não é thread-safe: handlers HTTP (Horse) e `OnRequest` de pipe-server rodam em thread pool, e duas escritas concorrentes corrompem o buffer do CRT (mesmo sintoma de Access Violation aleatório). `SafeWriteln` serializa a escrita via `TCriticalSection` global.
+
+```pascal
+uses
+  Common.SafeLog;
+
+SafeWriteln('Aplicação iniciada');
+SafeWriteln('Requisição %s %s -> %d', [Req.Method, Req.PathInfo, Res.Status]);
+```
+
+Já é usado internamente por `TLoggerMiddleware` (branch sem callback customizado) e por `TFDFactory.TestConnection` — qualquer ponto do código que precise escrever no console fora de um contexto garantidamente single-thread deve usar `SafeWriteln` em vez de `Writeln`.
+
+### Arquivo, assíncrono e por categoria (`Common.FileLog`)
+
+Para logs que não passam pelo ciclo de requisição do Horse (startup, jobs, handlers de pipe, mensageria) e precisam ficar em arquivo. `FileLog` só enfileira a linha — nunca bloqueia a thread chamadora esperando I/O de disco — e uma thread dedicada drena a fila em lote no intervalo configurado.
+
+```pascal
+uses
+  Common.FileLog;
+
+FileLog('pipe', 'Consulta NFE: loja=%s chave=%s', [LLoja, LChave]);
+FileLog('amqp', 'Mensagem processada');
+```
+
+Cada categoria grava no seu próprio arquivo (`<LOG_DIR>\<categoria>.log`). Quando o arquivo atual atinge o tamanho máximo, é renomeado para `<categoria>_yyyymmddhhnnss.log` e um arquivo novo é iniciado — logs antigos ficam isolados em arquivos por época, fáceis de arquivar ou apagar. A fila em memória tem tamanho limitado: se lotar (produção mais rápida que o disco consegue escrever), descarta a linha mais antiga — o log nunca pode travar nem derrubar quem está logando.
+
+| Campo (`.env`) | Padrão | Descrição |
+|---|---|---|
+| `LOG_DIR` | `logs` | Diretório dos arquivos de log |
+| `LOG_QUEUE_CAPACITY` | `10000` | Tamanho máximo da fila em memória; excedente descarta a linha mais antiga |
+| `LOG_FLUSH_INTERVAL_MS` | `200` | Intervalo entre gravações em disco |
+| `LOG_MAX_FILE_SIZE_MB` | `2` | Tamanho máximo por arquivo antes de rotacionar |
+
+```env
+LOG_DIR=C:\logs\minha-api
+LOG_QUEUE_CAPACITY=10000
+LOG_FLUSH_INTERVAL_MS=200
+LOG_MAX_FILE_SIZE_MB=2
+```
+
+> A gravação é best-effort: a linha pode levar até um ciclo de flush para aparecer no arquivo, exceto no encerramento normal do processo, onde a fila pendente é drenada antes de finalizar (só se perde em crash abrupto do processo). Falha ao escrever no arquivo (disco cheio, permissão) não derruba a aplicação — cai num aviso via `SafeWriteln` no console.
+
+---
+
 ## Mensageria (IMessageConsumer / IMessagePublisher)
 
 O módulo `src/Messaging/Messaging.Interfaces.pas` define o contrato de mensageria agnóstico de protocolo e broker. O projeto de negócio implementa apenas `IMessageHandler` — o que fazer quando a mensagem chega. Adapters concretos (AMQP, STOMP, etc.) implementam `IMessageConsumer` e `IMessagePublisher`.

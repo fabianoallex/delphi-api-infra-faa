@@ -413,6 +413,20 @@ LFactory := TFDFactory.Create(LConfig, nil);
 
 ---
 
+## Logging
+
+`Common.SafeLog.SafeWriteln` — `Writeln` thread-safe pro console (`TCriticalSection` global). Use em qualquer ponto que pode rodar fora da main thread (handler HTTP, `OnRequest` de pipe-server, thread de pool) — `Writeln` direto corrompe o buffer do CRT sob concorrência.
+
+`Common.FileLog.FileLog(ACategory, AText)` — log assíncrono em arquivo, por categoria, pra código fora do ciclo de requisição do Horse (startup, jobs, handlers de pipe/mensageria). Só enfileira (nunca bloqueia esperando disco); thread dedicada drena e grava em lote. Rotaciona por tamanho: arquivo cheio vira `<categoria>_yyyymmddhhnnss.log`, um novo começa vazio.
+
+```pascal
+FileLog('pipe', 'Consulta NFE: loja=%s chave=%s', [LLoja, LChave]);
+```
+
+Config (`.env`): `LOG_DIR` (padrão `logs`), `LOG_QUEUE_CAPACITY` (padrão `10000`), `LOG_FLUSH_INTERVAL_MS` (padrão `200`), `LOG_MAX_FILE_SIZE_MB` (padrão `2`). Detalhes no README, seção "Logging".
+
+---
+
 ## Anti-padrões a evitar
 
 - Colocar lógica de negócio no Repository — validações vão no Service
@@ -422,6 +436,7 @@ LFactory := TFDFactory.Create(LConfig, nil);
 - `ExecSql` em INSERT com RETURNING — use `Open`
 - SQL inline no código — todo SQL vai em arquivo `.sql` + `queries.rc`
 - Esquecer de recompilar `queries.res` após adicionar SQL novo
+- `Writeln` direto em código que pode rodar fora da main thread (handler HTTP, `OnRequest` de pipe-server, thread de pool) — usar `SafeWriteln` (`Common.SafeLog`)
 - `IOptional.Value` sem checar `HasValue` antes
 - Chamar `LResult.Next` antes de checar `LResult.IsEmpty` — o padrão correto é `while not LResult.Eof`
 - Registrar `TMcpServer` após `TRouteDoc.Serve` — o doc já foi liberado
