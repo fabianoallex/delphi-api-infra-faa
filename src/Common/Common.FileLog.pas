@@ -16,7 +16,10 @@ type
   IFileLogger = interface
     ['{759D3123-E813-48A6-9F81-712D5690D261}']
     procedure Log(const ACategory, AText: string); overload;
+    procedure Log(const ACategories: array of string; const AText: string); overload;
     procedure Log(const ACategory, AFormatStr: string; const AArgs: array of const); overload;
+    procedure Log(const ACategories: array of string; const AFormatStr: string;
+      const AArgs: array of const); overload;
     procedure FlushNow;
     function PendingCount: Integer;
   end;
@@ -34,6 +37,7 @@ type
     FLock:             TCriticalSection;
     FThread:           TThread;
     FWake:             TEvent;
+    function NewEventId: string;
     procedure Enqueue(const ACategory, ALine: string);
     procedure FlushQueue;
     function CategoryFilePath(const ACategory: string): string;
@@ -45,7 +49,10 @@ type
       AMaxFileSizeBytes: Int64; AAutoFlush: Boolean = True);
     destructor Destroy; override;
     procedure Log(const ACategory, AText: string); overload;
+    procedure Log(const ACategories: array of string; const AText: string); overload;
     procedure Log(const ACategory, AFormatStr: string; const AArgs: array of const); overload;
+    procedure Log(const ACategories: array of string; const AFormatStr: string;
+      const AArgs: array of const); overload;
     procedure FlushNow;
     function PendingCount: Integer;
   end;
@@ -71,6 +78,16 @@ type
 /// <categoria>_yyyymmddhhnnss.log e um arquivo novo é iniciado — assim logs
 /// antigos ficam isolados em arquivos por época, fáceis de arquivar/apagar.
 ///
+/// Toda linha é prefixada com [<hash> <data hora>]. O hash é gerado uma vez
+/// por chamada e é o mesmo em todas as categorias daquela chamada — permite
+/// reconhecer, ao inspecionar dois arquivos diferentes, que duas linhas se
+/// referem ao mesmo evento de log.
+///
+/// Uma mesma mensagem pode ir para mais de uma categoria passando um array:
+///   FileLog(['exception', 'inicializacao'], 'Falha ao conectar no banco: %s', [E.Message]);
+/// grava a mesma linha (mesmo hash) em exception.log e inicializacao.log —
+/// uma exceção durante o startup aparece em ambos, correlacionável pelo hash.
+///
 /// Uso:
 ///   FileLog('pipe', 'Consulta NFE: loja=%s chave=%s', [LLoja, LChave]);
 ///   FileLog('amqp', 'Mensagem processada');
@@ -82,7 +99,10 @@ type
 ///   LOG_FLUSH_INTERVAL_MS   intervalo de gravação em disco (padrão: 200)
 ///   LOG_MAX_FILE_SIZE_MB    tamanho máximo por arquivo antes de rotacionar (padrão: 2)
 procedure FileLog(const ACategory, AText: string); overload;
+procedure FileLog(const ACategories: array of string; const AText: string); overload;
 procedure FileLog(const ACategory, AFormatStr: string; const AArgs: array of const); overload;
+procedure FileLog(const ACategories: array of string; const AFormatStr: string;
+  const AArgs: array of const); overload;
 
 implementation
 
@@ -265,14 +285,41 @@ begin
   FlushQueue;
 end;
 
+function TFileLogger.NewEventId: string;
+var
+  LGuid: TGUID;
+begin
+  CreateGUID(LGuid);
+  Result := Copy(THashMD5.GetHashString(GUIDToString(LGuid)), 1, 8);
+end;
+
 procedure TFileLogger.Log(const ACategory, AText: string);
 begin
-  Enqueue(ACategory, Format('[%s] %s', [FormatDateTime('yyyy-mm-dd hh:nn:ss', Now), AText]));
+  Log([ACategory], AText);
+end;
+
+procedure TFileLogger.Log(const ACategories: array of string; const AText: string);
+var
+  LLine: string;
+  LCategory: string;
+begin
+  // Mesmo hash em todas as categorias desta chamada — correlaciona a mesma
+  // linha gravada em mais de um arquivo (ex.: exception.log + inicializacao.log).
+  LLine := Format('[%s %s] %s',
+    [NewEventId, FormatDateTime('yyyy-mm-dd hh:nn:ss', Now), AText]);
+  for LCategory in ACategories do
+    Enqueue(LCategory, LLine);
 end;
 
 procedure TFileLogger.Log(const ACategory, AFormatStr: string; const AArgs: array of const);
 begin
-  Log(ACategory, Format(AFormatStr, AArgs));
+  Log([ACategory], Format(AFormatStr, AArgs));
+end;
+
+procedure TFileLogger.Log(const ACategories: array of string; const AFormatStr: string;
+  const AArgs: array of const);
+begin
+  Log(ACategories, Format(AFormatStr, AArgs));
 end;
 
 { FileLog — instância global usada pelo resto da aplicação }
@@ -285,9 +332,20 @@ begin
   GDefaultLogger.Log(ACategory, AText);
 end;
 
+procedure FileLog(const ACategories: array of string; const AText: string);
+begin
+  GDefaultLogger.Log(ACategories, AText);
+end;
+
 procedure FileLog(const ACategory, AFormatStr: string; const AArgs: array of const);
 begin
   GDefaultLogger.Log(ACategory, AFormatStr, AArgs);
+end;
+
+procedure FileLog(const ACategories: array of string; const AFormatStr: string;
+  const AArgs: array of const);
+begin
+  GDefaultLogger.Log(ACategories, AFormatStr, AArgs);
 end;
 
 initialization

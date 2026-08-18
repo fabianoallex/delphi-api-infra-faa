@@ -8,6 +8,7 @@ uses
   System.Classes,
   System.IOUtils,
   System.Diagnostics,
+  System.RegularExpressions,
   Common.FileLog;
 
 type
@@ -35,10 +36,15 @@ type
   private
     function NewTempDir: string;
     procedure CleanupDir(const ADir: string);
+    function ExtractLineHash(const ALine: string): string;
   public
     [Test] procedure Test_FileLog_Log_Enfileira;
     [Test] procedure Test_FileLog_FlushNow_GravaArquivoEZeraFila;
     [Test] procedure Test_FileLog_CategoriasDiferentes_ArquivosSeparados;
+    [Test] procedure Test_FileLog_Log_PrefixaComHashEData;
+    [Test] procedure Test_FileLog_MultiplasCategorias_GravaEmTodosOsArquivos;
+    [Test] procedure Test_FileLog_MultiplasCategorias_MesmoHashCorrelaciona;
+    [Test] procedure Test_FileLog_ChamadasDiferentes_HashesDiferentes;
     [Test] procedure Test_FileLog_FilaCheia_DescartaMaisAntiga;
     [Test] procedure Test_FileLog_Rotacao_PorTamanho;
     [Test] procedure Test_FileLog_Destroy_DrenaFilaPendente;
@@ -96,6 +102,17 @@ procedure TFileLogTests.CleanupDir(const ADir: string);
 begin
   if TDirectory.Exists(ADir) then
     TDirectory.Delete(ADir, True);
+end;
+
+function TFileLogTests.ExtractLineHash(const ALine: string): string;
+var
+  LMatch: TMatch;
+begin
+  LMatch := TRegEx.Match(ALine, '^\[([0-9a-f]{8}) ');
+  if LMatch.Success then
+    Result := LMatch.Groups[1].Value
+  else
+    Result := '';
 end;
 
 procedure TFileLogTests.Test_FileLog_Log_Enfileira;
@@ -169,6 +186,122 @@ begin
 
     Assert.IsTrue(LAmqpContent.Contains('evento do amqp'), 'amqp.log deveria conter seu evento');
     Assert.IsFalse(LAmqpContent.Contains('evento do pipe'), 'amqp.log não deveria conter evento de pipe');
+  finally
+    LLogger := nil;
+    CleanupDir(LDir);
+  end;
+end;
+
+procedure TFileLogTests.Test_FileLog_Log_PrefixaComHashEData;
+var
+  LDir, LPath, LContent: string;
+  LLogger: IFileLogger;
+begin
+  LDir := NewTempDir;
+  try
+    LLogger := TFileLogger.Create(LDir, 100, 999999999, 2 * 1024 * 1024, False);
+    LLogger.Log('app', 'mensagem com prefixo');
+    LLogger.FlushNow;
+
+    LPath := TPath.Combine(LDir, 'app.log');
+    LContent := TFile.ReadAllText(LPath, TEncoding.UTF8);
+
+    Assert.IsTrue(
+      TRegEx.IsMatch(LContent, '^\[[0-9a-f]{8} \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\] mensagem com prefixo'),
+      'Linha deveria começar com [hash data hora] antes da mensagem');
+  finally
+    LLogger := nil;
+    CleanupDir(LDir);
+  end;
+end;
+
+procedure TFileLogTests.Test_FileLog_MultiplasCategorias_GravaEmTodosOsArquivos;
+var
+  LDir, LExceptionPath, LInitPath, LExceptionContent, LInitContent: string;
+  LLogger: IFileLogger;
+begin
+  LDir := NewTempDir;
+  try
+    LLogger := TFileLogger.Create(LDir, 100, 999999999, 2 * 1024 * 1024, False);
+    LLogger.Log(['exception', 'inicializacao'], 'falha ao conectar no banco');
+    LLogger.FlushNow;
+
+    LExceptionPath := TPath.Combine(LDir, 'exception.log');
+    LInitPath      := TPath.Combine(LDir, 'inicializacao.log');
+
+    Assert.IsTrue(TFile.Exists(LExceptionPath), 'exception.log deveria existir');
+    Assert.IsTrue(TFile.Exists(LInitPath), 'inicializacao.log deveria existir');
+
+    LExceptionContent := TFile.ReadAllText(LExceptionPath, TEncoding.UTF8);
+    LInitContent      := TFile.ReadAllText(LInitPath, TEncoding.UTF8);
+
+    Assert.IsTrue(LExceptionContent.Contains('falha ao conectar no banco'),
+      'exception.log deveria conter a mensagem');
+    Assert.IsTrue(LInitContent.Contains('falha ao conectar no banco'),
+      'inicializacao.log deveria conter a mesma mensagem');
+  finally
+    LLogger := nil;
+    CleanupDir(LDir);
+  end;
+end;
+
+procedure TFileLogTests.Test_FileLog_MultiplasCategorias_MesmoHashCorrelaciona;
+var
+  LDir, LExceptionPath, LInitPath, LExceptionContent, LInitContent, LHash1, LHash2: string;
+  LLogger: IFileLogger;
+begin
+  LDir := NewTempDir;
+  try
+    LLogger := TFileLogger.Create(LDir, 100, 999999999, 2 * 1024 * 1024, False);
+    LLogger.Log(['exception', 'inicializacao'], 'evento correlacionado');
+    LLogger.FlushNow;
+
+    LExceptionPath := TPath.Combine(LDir, 'exception.log');
+    LInitPath      := TPath.Combine(LDir, 'inicializacao.log');
+
+    LExceptionContent := TFile.ReadAllText(LExceptionPath, TEncoding.UTF8);
+    LInitContent      := TFile.ReadAllText(LInitPath, TEncoding.UTF8);
+
+    LHash1 := ExtractLineHash(LExceptionContent);
+    LHash2 := ExtractLineHash(LInitContent);
+
+    Assert.AreNotEqual('', LHash1, 'Deveria extrair um hash de exception.log');
+    Assert.AreEqual(LHash1, LHash2,
+      'Mesma chamada de Log em categorias diferentes deve gerar o mesmo hash, ' +
+      'para correlacionar os eventos entre arquivos');
+  finally
+    LLogger := nil;
+    CleanupDir(LDir);
+  end;
+end;
+
+procedure TFileLogTests.Test_FileLog_ChamadasDiferentes_HashesDiferentes;
+var
+  LDir, LPath, LContent: string;
+  LLogger: IFileLogger;
+  LLines: TArray<string>;
+  LHash1, LHash2: string;
+begin
+  LDir := NewTempDir;
+  try
+    LLogger := TFileLogger.Create(LDir, 100, 999999999, 2 * 1024 * 1024, False);
+    LLogger.Log('app', 'primeira chamada');
+    LLogger.Log('app', 'segunda chamada');
+    LLogger.FlushNow;
+
+    LPath    := TPath.Combine(LDir, 'app.log');
+    LContent := TFile.ReadAllText(LPath, TEncoding.UTF8);
+    LLines   := LContent.Split([#13#10], TStringSplitOptions.ExcludeEmpty);
+
+    Assert.AreEqual(2, Length(LLines), 'Deveriam existir 2 linhas');
+
+    LHash1 := ExtractLineHash(LLines[0]);
+    LHash2 := ExtractLineHash(LLines[1]);
+
+    Assert.AreNotEqual('', LHash1);
+    Assert.AreNotEqual('', LHash2);
+    Assert.AreNotEqual(LHash1, LHash2,
+      'Chamadas diferentes de Log deveriam gerar hashes diferentes');
   finally
     LLogger := nil;
     CleanupDir(LDir);

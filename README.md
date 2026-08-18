@@ -1218,6 +1218,14 @@ FileLog('amqp', 'Mensagem processada');
 
 Cada categoria grava no seu próprio arquivo (`<LOG_DIR>\<categoria>.log`). Quando o arquivo atual atinge o tamanho máximo, é renomeado para `<categoria>_yyyymmddhhnnss.log` e um arquivo novo é iniciado — logs antigos ficam isolados em arquivos por época, fáceis de arquivar ou apagar. A fila em memória tem tamanho limitado: se lotar (produção mais rápida que o disco consegue escrever), descarta a linha mais antiga — o log nunca pode travar nem derrubar quem está logando.
 
+Toda linha é prefixada com `[<hash> <data hora>]`. O hash é gerado uma vez por chamada — se a mesma chamada gravar em mais de uma categoria, o hash é idêntico nas duas, permitindo reconhecer, ao inspecionar dois arquivos diferentes, que duas linhas se referem ao mesmo evento. Passe um array de categorias para gravar a mesma mensagem em mais de um arquivo:
+
+```pascal
+// Uma exceção durante o startup vai para exception.log e inicializacao.log,
+// com o mesmo hash — correlacionável entre os dois arquivos.
+FileLog(['exception', 'inicializacao'], 'Falha ao conectar no banco: %s', [E.Message]);
+```
+
 | Campo (`.env`) | Padrão | Descrição |
 |---|---|---|
 | `LOG_DIR` | `logs` | Diretório dos arquivos de log |
