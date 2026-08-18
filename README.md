@@ -600,6 +600,26 @@ Todos os erros retornam `Content-Type: application/json` com o envelope:
 
 A mensagem é obtida de `E.Message` da exceção capturada — use mensagens orientadas ao usuário final nas classes `EValidationException`, `ENotFoundException` e `EConflictException`.
 
+### Log de exceções (`AOnError`)
+
+`TErrorHandlerMiddleware.New` aceita um segundo parâmetro opcional, `AOnError: TLogProc` (mesmo tipo usado por `TLoggerMiddleware`) — é chamado **só** para o branch 500 (`Exception` genérica não mapeada). `EValidationException`/`ENotFoundException`/`EConflictException`/`EOrderByException` **não** disparam o callback: são fluxo de negócio esperado (400/404/409), não algo a monitorar.
+
+```pascal
+uses
+  Common.FileLog;
+
+THorse.Use(TErrorHandlerMiddleware.New(
+  procedure(const ALine: string)
+  begin
+    // 'exception' vira um índice curto de tudo que quebrou de verdade;
+    // a segunda categoria correlaciona (mesmo hash) com o log operacional
+    // do domínio que estava sendo atendido.
+    FileLog(['exception', 'http'], ALine);
+  end));
+```
+
+A linha já vem formatada como `MÉTODO /path -> 500: EClasseDaExcecao: mensagem`.
+
 ---
 
 ## Middleware de autenticação

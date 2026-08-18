@@ -4,7 +4,8 @@ interface
 
 uses
   System.SysUtils,
-  Horse.Callback;
+  Horse.Callback,
+  Horse.Middleware.Logger;
 
 type
   /// Exceção HTTP genérica — carrega o status code HTTP a ser retornado.
@@ -42,11 +43,25 @@ type
   ///   EOrderByException  → 400
   ///   Exception          → 500
   ///
+  /// AOnError é opcional e só é chamado para o branch 500 (Exception genérica)
+  /// — EHttpException/EOrderByException são fluxo de negócio esperado (400/404/409),
+  /// não erro a ser monitorado. Mesmo padrão de TLoggerMiddleware.New: o
+  /// middleware não decide o destino do log, só entrega a linha pronta.
+  ///
   /// Uso no DPR (antes de RegisterRoutes):
   ///   THorse.Use(TErrorHandlerMiddleware.New);
+  ///
+  ///   // Com log em arquivo (ver Common.FileLog) — categoria 'exception' vira
+  ///   // um índice enxuto de tudo que quebrou; correlacione com uma segunda
+  ///   // categoria (ex.: 'http') se quiser mais contexto no mesmo arquivo:
+  ///   THorse.Use(TErrorHandlerMiddleware.New(
+  ///     procedure(const ALine: string)
+  ///     begin
+  ///       FileLog(['exception', 'http'], ALine);
+  ///     end));
   TErrorHandlerMiddleware = class
   public
-    class function New: THorseCallback;
+    class function New(AOnError: TLogProc = nil): THorseCallback;
   end;
 
 implementation
@@ -87,7 +102,7 @@ end;
 
 { TErrorHandlerMiddleware }
 
-class function TErrorHandlerMiddleware.New: THorseCallback;
+class function TErrorHandlerMiddleware.New(AOnError: TLogProc): THorseCallback;
 begin
   Result :=
     procedure(Req: THorseRequest; Res: THorseResponse; Next: TNextProc)
@@ -114,6 +129,9 @@ begin
         begin
           LStatus  := 500;
           LMessage := E.Message;
+          if Assigned(AOnError) then
+            AOnError(Format('%s %s -> %d: %s: %s',
+              [Req.Method, Req.PathInfo, LStatus, E.ClassName, LMessage]));
         end;
       end;
 

@@ -231,6 +231,12 @@ THealthCheck.Register(LFactory);
 
 // Middleware de erros — deve vir APÓS o Logger; captura exceções de todos os handlers seguintes
 THorse.Use(TErrorHandlerMiddleware.New);
+// Com log em arquivo do que quebrou de verdade (erros 500; validação/404/409 não contam):
+// THorse.Use(TErrorHandlerMiddleware.New(
+//   procedure(const ALine: string)
+//   begin
+//     FileLog(['exception', 'http'], ALine);
+//   end));
 
 // Rate limiting (opcional) — deve vir APÓS o ErrorHandler; antes de RegisterRoutes
 // THorse.Use(TRateLimitMiddleware.New(60, 60));   // 60 req/min por IP
@@ -417,13 +423,46 @@ LFactory := TFDFactory.Create(LConfig, nil);
 
 `Common.SafeLog.SafeWriteln` — `Writeln` thread-safe pro console (`TCriticalSection` global). Use em qualquer ponto que pode rodar fora da main thread (handler HTTP, `OnRequest` de pipe-server, thread de pool) — `Writeln` direto corrompe o buffer do CRT sob concorrência.
 
-`Common.FileLog.FileLog(ACategory, AText)` — log assíncrono em arquivo, por categoria, pra código fora do ciclo de requisição do Horse (startup, jobs, handlers de pipe/mensageria). Só enfileira (nunca bloqueia esperando disco); thread dedicada drena e grava em lote. Rotaciona por tamanho: arquivo cheio vira `<categoria>_yyyymmddhhnnss.log`, um novo começa vazio.
+`Common.FileLog.FileLog(ACategory, AText)` — log assíncrono em arquivo, por categoria, pra código fora do ciclo de requisição do Horse (startup, jobs, handlers de pipe/mensageria). Só enfileira (nunca bloqueia esperando disco); thread dedicada drena e grava em lote. Rotaciona por tamanho: arquivo cheio vira `<categoria>_yyyymmddhhnnss.log`, um novo começa vazio. Toda linha é prefixada com `[<hash> <data hora>]`.
 
 ```pascal
 FileLog('pipe', 'Consulta NFE: loja=%s chave=%s', [LLoja, LChave]);
 ```
 
 Config (`.env`): `LOG_DIR` (padrão `logs`), `LOG_QUEUE_CAPACITY` (padrão `10000`), `LOG_FLUSH_INTERVAL_MS` (padrão `200`), `LOG_MAX_FILE_SIZE_MB` (padrão `2`). Detalhes no README, seção "Logging".
+
+### Padrão: `exception.log` como índice, correlacionado por hash
+
+`FileLog` aceita um array de categorias — a mesma linha (mesmo hash) vai pra mais de um arquivo:
+
+```pascal
+FileLog(['exception', 'pipe'], 'Falha ao processar NFe: %s', [E.Message]);
+```
+
+O hash é gerado uma vez por chamada e repete em todas as categorias daquela chamada — grepar o hash em `exception.log` acha a mesma linha, com o mesmo hash, no arquivo de contexto completo (`pipe.log`, `migrations.log`, etc.). Use isso pra manter `exception.log` como um índice curto e monitorável (poucas linhas, sinal de "algo quebrou"), sem duplicar todo o contexto operacional nele.
+
+Dois pontos onde aplicar por padrão em todo projeto novo:
+
+1. **Erros HTTP não tratados** — `TErrorHandlerMiddleware.New` aceita um `AOnError: TLogProc` opcional, chamado só para o branch 500 (erro de verdade; validação/404/409 são fluxo esperado, não vão pro log):
+   ```pascal
+   THorse.Use(TErrorHandlerMiddleware.New(
+     procedure(const ALine: string)
+     begin
+       FileLog(['exception', 'http'], ALine);
+     end));
+   ```
+2. **Etapas críticas do startup** (conexão com banco, migrations, conexão com fila, etc.) — envolva cada etapa num `try/except` que loga em `['exception', '<categoria-do-app>']` antes de re-lançar, pra uma falha na inicialização aparecer tanto no índice quanto no log completo de startup:
+   ```pascal
+   try
+     LConsumer.Start;
+   except
+     on E: Exception do
+     begin
+       FileLog(['exception', 'minha-api'], 'Falha ao iniciar consumer RabbitMQ: %s', [E.Message]);
+       raise;
+     end;
+   end;
+   ```
 
 ---
 
