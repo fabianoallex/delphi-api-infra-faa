@@ -67,28 +67,114 @@ type
     IsDDL: Boolean;
   end;
 
+  // Cada etapa do Execute dispara um TMigrationEvent — o engine não formata
+  // texto nem decide destino de log; o chamador tem os dados estruturados
+  // da migration em andamento e escolhe como/onde registrar (console,
+  // Common.FileLog, métricas, etc.).
+  TMigrationEventKind = (
+    mekCheck,      // início do Execute: SchemaVersion = versão antes de aplicar qualquer coisa
+    mekApplying,   // uma migration pendente está prestes a rodar
+    mekApplied,    // a migration rodou e a versão já foi registrada
+    mekFailed,     // a migration falhou (ErrorMessage preenchido); Execute vai propagar a exceção em seguida
+    mekCompleted   // fim do Execute: AppliedCount e SchemaVersion refletem o resultado final
+  );
+
+  TMigrationEvent = record
+    Kind: TMigrationEventKind;
+    Version: Integer;        // versão da migration em processamento (mekApplying/mekApplied/mekFailed); 0 nos demais
+    ScriptName: string;      // nome do script (mekApplying/mekApplied/mekFailed); '' nos demais
+    IsDDL: Boolean;          // TMigrationItem.IsDDL da migration em processamento
+    SchemaVersion: Integer;  // versão do schema: baseline em mekCheck, versão final em mekCompleted
+    AppliedCount: Integer;   // quantas migrations já foram aplicadas nesta execução (mekCompleted)
+    ErrorMessage: string;    // mensagem da exceção (mekFailed)
+  end;
+
+  TMigrationEventProc = reference to procedure(const AEvent: TMigrationEvent);
+
   { TDBMigrationEngine }
 
   TDBMigrationEngine = class
   private
     FFactory: IDBFactory;
+    FOnEvent: TMigrationEventProc;
+    function DescribeEvent(const AEvent: TMigrationEvent): string;
+    procedure Notify(const AEvent: TMigrationEvent);
     function ResolveMigrationDialect: IMigrationDialect;
     function GetCurrentVersion(AMigDialect: IMigrationDialect): Integer;
     procedure ApplyScript(const AMigration: TMigrationItem; ATransaction: ITransaction);
     procedure InsertVersionRecord(AVersion: Integer; AMigDialect: IMigrationDialect;
       ATransaction: ITransaction = nil);
   public
-    constructor Create(AFactory: IDBFactory);
+    // AOnEvent é opcional — sem ele, os eventos viram uma linha de texto no
+    // console via SafeWriteln (mesmo fallback de TLoggerMiddleware.New).
+    // Passe um callback para acessar os dados da migration em andamento e
+    // registrá-los do jeito que convier:
+    //
+    //   TDBMigrationEngine.Create(LFactory,
+    //     procedure(const AEvent: TMigrationEvent)
+    //     begin
+    //       case AEvent.Kind of
+    //         mekApplying: FileLog('migrations', 'Aplicando %d (%s)', [AEvent.Version, AEvent.ScriptName]);
+    //         mekFailed:   FileLog('migrations', 'Falhou %d: %s', [AEvent.Version, AEvent.ErrorMessage]);
+    //       end;
+    //     end);
+    constructor Create(AFactory: IDBFactory; AOnEvent: TMigrationEventProc = nil);
+    // Versão atual do schema (última migration aplicada). Útil no startup da
+    // aplicação para logar/expor o estado do banco antes de decidir se roda
+    // Execute — resolve o dialeto e consulta SCHEMA_MIGRATIONS diretamente,
+    // sem depender de uma chamada prévia a Execute.
+    function CurrentVersion: Integer;
     procedure Execute(const AMigrations: array of TMigrationItem);
   end;
 
 implementation
 
+uses
+  Common.SafeLog;
+
 { TDBMigrationEngine }
 
-constructor TDBMigrationEngine.Create(AFactory: IDBFactory);
+constructor TDBMigrationEngine.Create(AFactory: IDBFactory; AOnEvent: TMigrationEventProc);
 begin
   FFactory := AFactory;
+  FOnEvent := AOnEvent;
+end;
+
+function TDBMigrationEngine.DescribeEvent(const AEvent: TMigrationEvent): string;
+begin
+  case AEvent.Kind of
+    mekCheck:
+      Result := Format('Verificando migrations. Versão atual: %d', [AEvent.SchemaVersion]);
+    mekApplying:
+      Result := Format('Aplicando migration %d (%s)...', [AEvent.Version, AEvent.ScriptName]);
+    mekApplied:
+      Result := Format('Migration %d (%s) aplicada com sucesso.', [AEvent.Version, AEvent.ScriptName]);
+    mekFailed:
+      Result := Format('Falha ao aplicar migration %d (%s): %s',
+        [AEvent.Version, AEvent.ScriptName, AEvent.ErrorMessage]);
+    mekCompleted:
+      if AEvent.AppliedCount = 0 then
+        Result := Format('Nenhuma migration pendente. Versão atual: %d', [AEvent.SchemaVersion])
+      else
+        Result := Format('Migrations concluídas: %d aplicada(s). Versão final: %d',
+          [AEvent.AppliedCount, AEvent.SchemaVersion]);
+  else
+    Result := '';
+  end;
+end;
+
+procedure TDBMigrationEngine.Notify(const AEvent: TMigrationEvent);
+begin
+  if Assigned(FOnEvent) then
+    FOnEvent(AEvent)
+  else
+    SafeWriteln(Format('[%s] %s',
+      [FormatDateTime('yyyy-mm-dd hh:nn:ss', Now), DescribeEvent(AEvent)]));
+end;
+
+function TDBMigrationEngine.CurrentVersion: Integer;
+begin
+  Result := GetCurrentVersion(ResolveMigrationDialect);
 end;
 
 function TDBMigrationEngine.ResolveMigrationDialect: IMigrationDialect;
@@ -207,50 +293,97 @@ procedure TDBMigrationEngine.Execute(const AMigrations: array of TMigrationItem)
 var
   LMigDialect: IMigrationDialect;
   LCurrentVersion: Integer;
+  LLastAppliedVersion: Integer;
+  LAppliedCount: Integer;
   LMigration: TMigrationItem;
   LScope: IScopeTransaction;
   LQuery: IQuery;
+  LEvent: TMigrationEvent;
 begin
   LMigDialect := ResolveMigrationDialect;
   LCurrentVersion := GetCurrentVersion(LMigDialect);
+  LLastAppliedVersion := LCurrentVersion;
+  LAppliedCount := 0;
+
+  LEvent := Default(TMigrationEvent);
+  LEvent.Kind := mekCheck;
+  LEvent.SchemaVersion := LCurrentVersion;
+  Notify(LEvent);
 
   for LMigration in AMigrations do
   begin
     if LMigration.Version <= LCurrentVersion then
       Continue;
 
-    if LMigration.IsDDL then
-    begin
-      // T1: executa o DDL e commita (Firebird auto-commita; PostgreSQL commita aqui)
-      LScope := FFactory.GetPool.AcquireQuery(LQuery);
-      LScope.StartTransaction;
-      try
-        ApplyScript(LMigration, LScope.GetOriginalTransaction);
-        LScope.Commit;
-      except
-        LScope.Rollback;
-        raise;
-      end;
+    LEvent := Default(TMigrationEvent);
+    LEvent.Kind := mekApplying;
+    LEvent.Version := LMigration.Version;
+    LEvent.ScriptName := LMigration.ScriptName;
+    LEvent.IsDDL := LMigration.IsDDL;
+    Notify(LEvent);
 
-      // T2: registra versão — transação nova enxerga a tabela criada acima
-      InsertVersionRecord(LMigration.Version, LMigDialect, nil);
-    end
-    else
-    begin
-      // DML: script + versão em uma única transação (atômica)
-      LScope := FFactory.GetPool.AcquireQuery(LQuery);
-      LScope.StartTransaction;
-      try
-        ApplyScript(LMigration, LScope.GetOriginalTransaction);
-        InsertVersionRecord(LMigration.Version, LMigDialect,
-          LScope.GetOriginalTransaction);
-        LScope.Commit;
-      except
-        LScope.Rollback;
+    try
+      if LMigration.IsDDL then
+      begin
+        // T1: executa o DDL e commita (Firebird auto-commita; PostgreSQL commita aqui)
+        LScope := FFactory.GetPool.AcquireQuery(LQuery);
+        LScope.StartTransaction;
+        try
+          ApplyScript(LMigration, LScope.GetOriginalTransaction);
+          LScope.Commit;
+        except
+          LScope.Rollback;
+          raise;
+        end;
+
+        // T2: registra versão — transação nova enxerga a tabela criada acima
+        InsertVersionRecord(LMigration.Version, LMigDialect, nil);
+      end
+      else
+      begin
+        // DML: script + versão em uma única transação (atômica)
+        LScope := FFactory.GetPool.AcquireQuery(LQuery);
+        LScope.StartTransaction;
+        try
+          ApplyScript(LMigration, LScope.GetOriginalTransaction);
+          InsertVersionRecord(LMigration.Version, LMigDialect,
+            LScope.GetOriginalTransaction);
+          LScope.Commit;
+        except
+          LScope.Rollback;
+          raise;
+        end;
+      end;
+    except
+      on E: Exception do
+      begin
+        LEvent := Default(TMigrationEvent);
+        LEvent.Kind := mekFailed;
+        LEvent.Version := LMigration.Version;
+        LEvent.ScriptName := LMigration.ScriptName;
+        LEvent.IsDDL := LMigration.IsDDL;
+        LEvent.ErrorMessage := E.Message;
+        Notify(LEvent);
         raise;
       end;
     end;
+
+    LLastAppliedVersion := LMigration.Version;
+    Inc(LAppliedCount);
+
+    LEvent := Default(TMigrationEvent);
+    LEvent.Kind := mekApplied;
+    LEvent.Version := LMigration.Version;
+    LEvent.ScriptName := LMigration.ScriptName;
+    LEvent.IsDDL := LMigration.IsDDL;
+    Notify(LEvent);
   end;
+
+  LEvent := Default(TMigrationEvent);
+  LEvent.Kind := mekCompleted;
+  LEvent.SchemaVersion := LLastAppliedVersion;
+  LEvent.AppliedCount := LAppliedCount;
+  Notify(LEvent);
 end;
 
 end.

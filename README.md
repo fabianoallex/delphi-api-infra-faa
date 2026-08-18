@@ -1002,6 +1002,8 @@ O `Db.Migrations` fornece um engine de migrations baseado em **append-only immut
 - O engine verifica automaticamente a versão atual e aplica apenas as pendentes
 - Cada migration roda em sua própria transação — falhas não desfazem as anteriores
 - DDL no Firebird faz auto-commit (comportamento nativo do banco)
+- `Execute` dispara um `TMigrationEvent` estruturado (`Kind`, `Version`, `ScriptName`, `IsDDL`, `SchemaVersion`, `AppliedCount`, `ErrorMessage`) em cada etapa — verificação inicial, cada migration aplicada/com falha, e o resumo final — via callback opcional `AOnEvent: TMigrationEventProc`; sem callback, cai numa linha de texto no console via `SafeWriteln`
+- `CurrentVersion` expõe a versão atual do schema sob demanda — útil para logar/checar o estado do banco no startup sem depender de uma chamada a `Execute`
 
 ### Estrutura mínima da tabela de controle
 
@@ -1035,9 +1037,27 @@ const
   );
 
 // Na inicialização da aplicação, antes de iniciar o servidor:
-var LEngine := TDBMigrationEngine.Create(TDBRegistry.GetFactory('meu_banco'));
+var LEngine := TDBMigrationEngine.Create(TDBRegistry.GetFactory('meu_banco'),
+  procedure(const AEvent: TMigrationEvent)
+  begin
+    case AEvent.Kind of
+      mekCheck:     FileLog('migrations', 'Versão atual: %d', [AEvent.SchemaVersion]);
+      mekApplying:  FileLog('migrations', 'Aplicando migration %d (%s)...', [AEvent.Version, AEvent.ScriptName]);
+      mekApplied:   FileLog('migrations', 'Migration %d (%s) aplicada.', [AEvent.Version, AEvent.ScriptName]);
+      mekFailed:    FileLog('migrations', 'Falha na migration %d (%s): %s',
+                      [AEvent.Version, AEvent.ScriptName, AEvent.ErrorMessage]);
+      mekCompleted: FileLog('migrations', '%d migration(s) aplicada(s). Versão final: %d',
+                      [AEvent.AppliedCount, AEvent.SchemaVersion]);
+    end;
+  end);
 LEngine.Execute(MIGRATIONS);
 LEngine.Free;
+```
+
+O callback `AOnEvent` é opcional — omitido, o engine formata cada evento como texto e usa `SafeWriteln` (console). `TMigrationEvent.Kind` define quais campos estão preenchidos (ver comentários em `TMigrationEvent` no próprio `Db.Migrations.pas`). `CurrentVersion` pode ser consultado a qualquer momento, inclusive antes de `Execute`:
+
+```pascal
+FileLog('startup', 'Versão do schema ao iniciar: %d', [LEngine.CurrentVersion]);
 ```
 
 O campo `IsDDL` indica se o script contém instruções DDL (`CREATE TABLE`, `ALTER TABLE`, etc.). Scripts DDL são executados em transação separada do registro de versão — necessário porque em Firebird o DDL auto-commita a transação ativa. Scripts DML (`IsDDL: False`) executam script e registro de versão em uma única transação atômica.

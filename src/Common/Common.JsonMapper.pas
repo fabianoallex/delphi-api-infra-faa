@@ -450,7 +450,7 @@ begin
           begin
             LObj.Free;
             raise EJsonMapperException.CreateFmt
-              ('Classe registrada para "%s" n�o implementa a interface.',
+              ('Classe registrada para "%s" não implementa a interface.',
               [GUIDToString(LGuid)]);
           end;
         end;
@@ -508,7 +508,7 @@ begin
 
   LJsonObj := TJSONObject.ParseJSONValue(AJson) as TJSONObject;
   if not Assigned(LJsonObj) then
-    raise EJsonMapperException.Create('JSON inv�lido ou n�o � um objeto.');
+    raise EJsonMapperException.Create('JSON inválido ou não é um objeto.');
   try
     LObj := DeserializeObject(LClass, LJsonObj);
     if not LObj.GetInterface(LIntfGuid, Result) then
