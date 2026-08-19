@@ -41,6 +41,7 @@ type
     class constructor Create;
     function GetNome: string;
     procedure SetNome(AValue: string);
+    property Nome: string read GetNome write SetNome;
   end;
 
   [TestFixture]
