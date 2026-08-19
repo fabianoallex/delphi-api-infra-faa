@@ -114,6 +114,15 @@ type
     procedure SetLimit(AValue: IOptInteger);
     procedure SetOrderBy(AValue: IOptString);
     procedure SetSearch(AValue: IOptString);
+    // Declaradas aqui (não só na interface) de propósito: TJsonMapper e o
+    // schema Swagger andam por RTTI da CLASSE concreta, nunca da interface.
+    // Sem essas properties aqui, FromJson<I>/ToJson<I> nunca enxergam Page/
+    // Limit/OrderBy/Search em nenhum DTO concreto que siga a recomendação
+    // de não redeclarar esses campos (ver CLAUDE.md, "Hierarquia de base").
+    property Page: IOptInteger read GetPage write SetPage;
+    property Limit: IOptInteger read GetLimit write SetLimit;
+    property OrderBy: IOptString read GetOrderBy write SetOrderBy;
+    property Search: IOptString read GetSearch write SetSearch;
   end;
 
   TResponsePaginationDTOBase = class(TResponseDTOBase, IResponsePaginationDTOBase)
@@ -128,6 +137,10 @@ type
     procedure SetPage(AValue: Integer);
     procedure SetLimit(AValue: Integer);
     procedure SetTotal(AValue: Integer);
+    // Mesmo motivo de TFindPaginationDTOBase acima.
+    property Page: Integer read GetPage write SetPage;
+    property Limit: Integer read GetLimit write SetLimit;
+    property Total: Integer read GetTotal write SetTotal;
   end;
 
 implementation
