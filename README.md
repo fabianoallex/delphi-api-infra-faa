@@ -512,7 +512,7 @@ uses
 begin
   LFactory := TFDFactory.Create(LConfig, nil);
   THealthCheck.Register(LFactory);          // ← GET /health
-  THorse.Use(TErrorHandlerMiddleware.New);
+  TErrorHandlerMiddleware.Register;
   TRouteDoc.Init(...);
   // ...
 end.
@@ -542,16 +542,18 @@ THealthCheck.Register(LFactory, '/status');
 
 O módulo `Horse.Middleware.ErrorHandler` centraliza o tratamento de exceções não capturadas. Sem ele, cada controller precisa de um `try/except` próprio, e exceções inesperadas chegam ao cliente como `500` sem corpo JSON.
 
+Internamente usa `THorse.OnError` — o hook nativo do core do Horse, chamado automaticamente pelo router em qualquer exceção não tratada durante o dispatch de uma rota. **Não** é um middleware em `THorse.Use`: não entra na cadeia de `Next()`, então não tem posição relativa a outros middlewares para respeitar. Requer uma versão do Horse com `THorse.OnError`/`THorseOnError` no core.
+
 ### Registro
 
-Chame `THorse.Use` **antes** de registrar as rotas:
+Chame em qualquer ponto **antes** de `THorse.Listen`:
 
 ```pascal
 uses
   Horse.Middleware.ErrorHandler in 'infra\src\Middleware\Horse.Middleware.ErrorHandler.pas';
 
 begin
-  THorse.Use(TErrorHandlerMiddleware.New);   // ← antes de qualquer RegisterRoutes
+  TErrorHandlerMiddleware.Register;
   TRouteDoc.Init('Minha API', '1.0.0', 'localhost:9000');
   TProdutoController.RegisterRoutes(LService);
   // ...
@@ -562,7 +564,7 @@ end.
 
 ### Hierarquia de exceções
 
-Lance a classe correta no Service ou Repository — o middleware converte automaticamente para o status HTTP correspondente:
+Lance a classe correta no Service ou Repository — o `OnError` converte automaticamente para o status HTTP correspondente:
 
 | Classe | Status | Quando usar |
 |---|---|---|
@@ -602,20 +604,20 @@ A mensagem é obtida de `E.Message` da exceção capturada — use mensagens ori
 
 ### Log de exceções (`AOnError`)
 
-`TErrorHandlerMiddleware.New` aceita um segundo parâmetro opcional, `AOnError: TLogProc` (mesmo tipo usado por `TLoggerMiddleware`) — é chamado **só** para o branch 500 (`Exception` genérica não mapeada). `EValidationException`/`ENotFoundException`/`EConflictException`/`EOrderByException` **não** disparam o callback: são fluxo de negócio esperado (400/404/409), não algo a monitorar.
+`TErrorHandlerMiddleware.Register` aceita um parâmetro opcional, `AOnError: TLogProc` (mesmo tipo usado por `TLoggerMiddleware`) — é chamado **só** para o branch 500 (`Exception` genérica não mapeada). `EValidationException`/`ENotFoundException`/`EConflictException`/`EOrderByException` **não** disparam o callback: são fluxo de negócio esperado (400/404/409), não algo a monitorar.
 
 ```pascal
 uses
   Common.FileLog;
 
-THorse.Use(TErrorHandlerMiddleware.New(
+TErrorHandlerMiddleware.Register(
   procedure(const ALine: string)
   begin
     // 'exception' vira um índice curto de tudo que quebrou de verdade;
     // a segunda categoria correlaciona (mesmo hash) com o log operacional
     // do domínio que estava sendo atendido.
     FileLog(['exception', 'http'], ALine);
-  end));
+  end);
 ```
 
 A linha já vem formatada como `MÉTODO /path -> 500: EClasseDaExcecao: mensagem`.
@@ -688,7 +690,7 @@ O módulo `Horse.Middleware.Jwt` valida tokens JWT com algoritmo **HS256** (HMAC
 
 ### Registro
 
-Registre **após** `TErrorHandlerMiddleware` e **antes** de `RegisterRoutes`:
+Registre **antes** de `RegisterRoutes`:
 
 ```pascal
 uses
@@ -758,11 +760,11 @@ O módulo `Horse.Middleware.Logger` registra cada requisição recebida no forma
 
 ### Ordem de registro
 
-Deve ser o **primeiro** middleware registrado para capturar o status correto inclusive de respostas de erro (4xx/5xx) geradas pelo `TErrorHandlerMiddleware`:
+Deve ser o **primeiro** middleware registrado em `THorse.Use`, para medir a duração total da requisição (incluindo o que os middlewares seguintes fazem). Não depende de ordem relativa ao `TErrorHandlerMiddleware.Register` — como ele não é mais um middleware em `THorse.Use` (usa `THorse.OnError`, ver seção "Middleware de tratamento de erros"), o status de erro já vem setado antes do `Next()` do Logger retornar, então o Logger lê o status correto de qualquer forma:
 
 ```pascal
-THorse.Use(TLoggerMiddleware.New);          // PRIMEIRO
-THorse.Use(TErrorHandlerMiddleware.New);    // segundo
+THorse.Use(TLoggerMiddleware.New);   // primeiro middleware em THorse.Use
+TErrorHandlerMiddleware.Register;    // em qualquer ponto antes de THorse.Listen
 ```
 
 ### Uso
@@ -798,7 +800,7 @@ O módulo `Horse.Middleware.Cors` emite os headers `Access-Control-Allow-*` nece
 
 ### Registro
 
-Registre **após** `TErrorHandlerMiddleware` e **antes** de `RegisterRoutes`:
+Registre **antes** de `RegisterRoutes`:
 
 ```pascal
 uses
@@ -846,7 +848,7 @@ O módulo `Horse.Middleware.RateLimit` limita o número de requisições por jan
 
 ### Registro
 
-Registre **após** `TErrorHandlerMiddleware` e **antes** de `RegisterRoutes`:
+Registre **antes** de `RegisterRoutes`:
 
 ```pascal
 uses

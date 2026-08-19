@@ -208,7 +208,7 @@ TRouteDoc.Patch('/pedidos/:id')
 ```
 
 Para `BuildItemsJson`, ver implementação em `Exemplo.Controller` no delphi-api-starter — padrão idêntico.
-`EOrderByException` não precisa ser capturada no handler — o `TErrorHandlerMiddleware` converte automaticamente para 400.
+`EOrderByException` não precisa ser capturada no handler — o `TErrorHandlerMiddleware` (via `THorse.OnError`) converte automaticamente para 400.
 
 ---
 
@@ -224,28 +224,30 @@ LService := TPedidoService.Create(TPedidoRepository.Create(LFactory));
 // Health check — fora do Swagger e do MCP (registrar antes dos middlewares)
 THealthCheck.Register(LFactory);
 
-// Logger (opcional) — deve ser o PRIMEIRO: envolve todos os outros middlewares
-// para capturar o status correto mesmo em respostas de erro
+// Logger (opcional) — deve ser o PRIMEIRO middleware em THorse.Use, para medir
+// a duração total da requisição (inclui o que os middlewares seguintes fazem)
 // THorse.Use(TLoggerMiddleware.New);                         // console
 // THorse.Use(TLoggerMiddleware.New(procedure(const S: string) begin ... end));
 
-// Middleware de erros — deve vir APÓS o Logger; captura exceções de todos os handlers seguintes
-THorse.Use(TErrorHandlerMiddleware.New);
+// Middleware de erros — usa THorse.OnError (hook nativo do core), não é um
+// middleware em THorse.Use: não entra na cadeia de Next(), sem posição
+// relativa aos outros a respeitar. Registre em qualquer ponto antes de Listen.
+TErrorHandlerMiddleware.Register;
 // Com log em arquivo do que quebrou de verdade (erros 500; validação/404/409 não contam):
-// THorse.Use(TErrorHandlerMiddleware.New(
+// TErrorHandlerMiddleware.Register(
 //   procedure(const ALine: string)
 //   begin
 //     FileLog(['exception', 'http'], ALine);
-//   end));
+//   end);
 
-// Rate limiting (opcional) — deve vir APÓS o ErrorHandler; antes de RegisterRoutes
+// Rate limiting (opcional) — antes de RegisterRoutes
 // THorse.Use(TRateLimitMiddleware.New(60, 60));   // 60 req/min por IP
 
-// CORS (opcional) — deve vir APÓS o ErrorHandler; antes de RegisterRoutes
+// CORS (opcional) — antes de RegisterRoutes
 // THorse.Use(TCorsMiddleware.New);                          // dev: libera *
 // THorse.Use(TCorsMiddleware.New('https://app.example.com')); // produção
 
-// Autenticação Bearer com API key (opcional) — deve vir APÓS o ErrorHandler
+// Autenticação Bearer com API key (opcional)
 // THorse.Use(TAuthMiddleware.Bearer(
 //   function(const AToken: string): Boolean
 //   begin
@@ -443,13 +445,13 @@ O hash é gerado uma vez por chamada e repete em todas as categorias daquela cha
 
 Dois pontos onde aplicar por padrão em todo projeto novo:
 
-1. **Erros HTTP não tratados** — `TErrorHandlerMiddleware.New` aceita um `AOnError: TLogProc` opcional, chamado só para o branch 500 (erro de verdade; validação/404/409 são fluxo esperado, não vão pro log):
+1. **Erros HTTP não tratados** — `TErrorHandlerMiddleware.Register` aceita um `AOnError: TLogProc` opcional, chamado só para o branch 500 (erro de verdade; validação/404/409 são fluxo esperado, não vão pro log):
    ```pascal
-   THorse.Use(TErrorHandlerMiddleware.New(
+   TErrorHandlerMiddleware.Register(
      procedure(const ALine: string)
      begin
        FileLog(['exception', 'http'], ALine);
-     end));
+     end);
    ```
 2. **Etapas críticas do startup** (conexão com banco, migrations, conexão com fila, etc.) — envolva cada etapa num `try/except` que loga em `['exception', '<categoria-do-app>']` antes de re-lançar, pra uma falha na inicialização aparecer tanto no índice quanto no log completo de startup:
    ```pascal

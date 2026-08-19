@@ -1,4 +1,4 @@
-﻿unit Horse.Middleware.ErrorHandler;
+unit Horse.Middleware.ErrorHandler;
 
 interface
 
@@ -36,7 +36,16 @@ type
     constructor Create(const AMessage: string);
   end;
 
-  /// Middleware que captura exceções não tratadas e devolve JSON padronizado.
+  /// Registra o tratamento global de exceções não capturadas, devolvendo JSON
+  /// padronizado. Usa THorse.OnError (hook nativo do core, chamado pelo
+  /// próprio router em qualquer exceção não tratada durante o dispatch) —
+  /// não é mais um middleware em THorse.Use, então não entra na cadeia de
+  /// Next() e não tem posição relativa a outros middlewares para respeitar
+  /// (basta chamar Register antes de THorse.Listen).
+  ///
+  /// Requer uma versão do Horse com THorse.OnError/THorseOnError no core
+  /// (Horse.Core.pas) — não existe nas versões anteriores ao PR
+  /// "feat: implement native global error handler (OnError)".
   ///
   /// Mapeamento:
   ///   EHttpException     → E.StatusCode
@@ -45,24 +54,23 @@ type
   ///
   /// AOnError é opcional e só é chamado para o branch 500 (Exception genérica)
   /// — EHttpException/EOrderByException são fluxo de negócio esperado (400/404/409),
-  /// não erro a ser monitorado. Mesmo padrão de TLoggerMiddleware.New: o
-  /// middleware não decide o destino do log, só entrega a linha pronta.
+  /// não erro a ser monitorado.
   ///
-  /// Uso no DPR (antes de RegisterRoutes):
-  ///   THorse.Use(TErrorHandlerMiddleware.New);
+  /// Uso no DPR (em qualquer ponto antes de THorse.Listen):
+  ///   TErrorHandlerMiddleware.Register;
   ///
   ///   // Com log em arquivo (ver Common.FileLog) — categoria 'exception' vira
   ///   // um índice enxuto de tudo que quebrou; correlacione com uma segunda
   ///   // categoria (ex.: 'http') se quiser mais contexto no mesmo arquivo:
-  ///   THorse.Use(TErrorHandlerMiddleware.New(
+  ///   TErrorHandlerMiddleware.Register(
   ///     procedure(const ALine: string)
   ///     begin
   ///       FileLog(['exception', 'http'], ALine);
-  ///     end));
+  ///     end);
   TErrorHandlerMiddleware = class
   public
-    class function New: THorseCallback; overload;
-    class function New(AOnError: TLogProc): THorseCallback; overload;
+    class procedure Register; overload;
+    class procedure Register(AOnError: TLogProc); overload;
   end;
 
 implementation
@@ -103,54 +111,57 @@ end;
 
 { TErrorHandlerMiddleware }
 
-class function TErrorHandlerMiddleware.New: THorseCallback;
+var
+  // THorseOnError é `procedure(...)` puro (nem `reference to`, nem `of object`)
+  // — não aceita closure, então não dá para capturar AOnError localmente
+  // dentro de Register. Guardamos aqui; reflete o próprio design do Horse
+  // (THorseCore.FOnError também é um único slot global, não por middleware).
+  GOnError: TLogProc;
+
+procedure HandleHorseError(const ARequest: THorseRequest; const AResponse: THorseResponse;
+  const AException: Exception);
+var
+  LStatus: Integer;
+  LMessage: string;
+  LJson: TJSONObject;
 begin
-  Result := New(nil);
+  if AException is EHttpException then
+  begin
+    LStatus  := EHttpException(AException).StatusCode;
+    LMessage := AException.Message;
+  end
+  else if AException is EOrderByException then
+  begin
+    LStatus  := 400;
+    LMessage := AException.Message;
+  end
+  else
+  begin
+    LStatus  := 500;
+    LMessage := AException.Message;
+    if Assigned(GOnError) then
+      GOnError(Format('%s %s -> %d: %s: %s',
+        [ARequest.Method, ARequest.PathInfo, LStatus, AException.ClassName, LMessage]));
+  end;
+
+  LJson := TJSONObject.Create;
+  try
+    LJson.AddPair('error', LMessage);
+    AResponse.Status(LStatus).ContentType('application/json; charset=utf-8').Send(LJson.ToJSON);
+  finally
+    LJson.Free;
+  end;
 end;
 
-class function TErrorHandlerMiddleware.New(AOnError: TLogProc): THorseCallback;
+class procedure TErrorHandlerMiddleware.Register;
 begin
-  Result :=
-    procedure(Req: THorseRequest; Res: THorseResponse; Next: TNextProc)
-    var
-      LStatus: Integer;
-      LMessage: string;
-      LJson: TJSONObject;
-    begin
-      LStatus := 0;
-      try
-        Next();
-      except
-        on E: EHttpException do
-        begin
-          LStatus  := E.StatusCode;
-          LMessage := E.Message;
-        end;
-        on E: EOrderByException do
-        begin
-          LStatus  := 400;
-          LMessage := E.Message;
-        end;
-        on E: Exception do
-        begin
-          LStatus  := 500;
-          LMessage := E.Message;
-          if Assigned(AOnError) then
-            AOnError(Format('%s %s -> %d: %s: %s',
-              [Req.Method, Req.PathInfo, LStatus, E.ClassName, LMessage]));
-        end;
-      end;
+  Register(nil);
+end;
 
-      if LStatus = 0 then Exit;
-
-      LJson := TJSONObject.Create;
-      try
-        LJson.AddPair('error', LMessage);
-        Res.Status(LStatus).ContentType('application/json; charset=utf-8').Send(LJson.ToJSON);
-      finally
-        LJson.Free;
-      end;
-    end;
+class procedure TErrorHandlerMiddleware.Register(AOnError: TLogProc);
+begin
+  GOnError := AOnError;
+  THorse.OnError(HandleHorseError);
 end;
 
 end.
