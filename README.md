@@ -263,6 +263,132 @@ IProdutoListResponseDTO = interface(IResponsePaginationDTOBase)
 end;
 ```
 
+### Campos opcionais — a blindagem contra `nil` é responsabilidade do getter
+
+Todo campo `IOptXxx`/`INullXxx`/`IOptNullXxx` de um DTO deve ser devolvido pelo getter através
+de `TOptionals.Safe`, nunca pelo field interno cru:
+
+```pascal
+function TProdutoFindDTO.GetNome: IOptString;
+begin
+  Result := TOptionals.Safe(FNome);
+end;
+```
+
+`TOptionals.Safe` garante que o retorno nunca é `nil` — mesmo que o field interno nunca tenha
+sido atribuído, o getter devolve um objeto "vazio" (`HasValue = False`), nunca uma referência
+nula. É a única blindagem contra `nil` desses campos, e ela existe no getter — não em cada lugar
+que consome o DTO depois. Por isso Service e Repository podem checar `ADto.Nome.HasValue`
+diretamente, sem `Assigned(ADto.Nome)` antes: essa checagem seria redundante contra uma garantia
+que a classe já dá. `Assigned` continua válido apenas no parâmetro `ADto` como um todo, já que
+esse é o único ponto por onde uma referência nula pode de fato chegar.
+
+Projetos consumidores devem ter um fixture DUnitX que valide essa garantia automaticamente,
+instanciando cada DTO vazio e invocando todo getter opcional — ver `AllOptionalGetters_NeverReturnNil`
+no `CLAUDE.md`, seção "Teste de conformação de DTOs".
+
+---
+
+## TJsonMapper — JSON ⇄ DTO via interface
+
+`TJsonMapper.FromJson<I>` / `TJsonMapper.ToJson<I>` convertem entre JSON e os DTOs da aplicação
+sem nenhum código de mapeamento manual. É o único jeito suportado de popular um DTO a partir do
+corpo de uma requisição (`POST`, `PATCH`, `PUT`):
+
+```pascal
+LDto := TJsonMapper.FromJson<IProdutoInsertDTO>(Req.Body);
+```
+
+Mapear campo a campo a partir de `TJSONObject` (`LJson.GetValue<string>('nome')` →
+`LDto.Nome := ...`) não é uma alternativa válida ao mapper — é reimplementar, pior e sem
+tratamento de `IOptXxx`, o que `FromJson<I>` já faz.
+
+### Como o mapper devolve um objeto concreto a partir de uma interface
+
+`FromJson<I>` nunca sabe, em tempo de compilação, qual classe implementa `I`. Ele descobre em
+runtime através de um registro que cada DTO monta sozinho, no próprio `class constructor`:
+
+1. Toda interface de DTO tem um GUID (`['{...}']`) — é a chave de busca no registro do mapper.
+2. `class constructor Create` da classe concreta chama `TJsonMapper.RegisterMapping<I, C>`, que
+   grava `GUID(I) → C` num dicionário estático interno da lib (`FRegistry`).
+3. `FromJson<I>(AJson)` lê o GUID de `I` via RTTI, busca a classe `C` registrada para esse GUID,
+   instancia `C.Create` e preenche cada `property` da classe via RTTI, casando o nome da
+   property com a chave do JSON (case-insensitive). Tipos `IOptXxx`/`INullXxx`/`IOptNullXxx`
+   são reconhecidos à parte: `HasValue` reflete se a chave existia no JSON, `IsNull` reflete um
+   valor `null` explícito.
+4. O objeto populado é convertido de volta para `I` (`GetInterface`) e devolvido — o chamador
+   nunca referencia a classe concreta, só a interface.
+
+`ToJson<I>` faz o caminho inverso: percorre os métodos `GetXxx` da classe concreta via RTTI e
+monta o `TJSONObject` de saída (por isso os atributos `[SwagProp]` etc. também vivem na classe —
+é o mesmo RTTI que o schema Swagger usa).
+
+Duas pré-condições sustentam esse mecanismo. Faltando qualquer uma, `FromJson`/`ToJson` lançam
+`EJsonMapperException` ("Nenhuma classe registrada para esta interface"):
+
+| Pré-condição | Por quê |
+|---|---|
+| `class constructor Create` chamando `RegisterMapping<I, C>` em **toda** classe DTO | é o único lugar onde a lib aprende qual classe implementa qual interface — sem ele o dicionário fica vazio para aquele GUID |
+| `{$STRONGLINKTYPES ON}` no `.dpr` | sem essa diretiva o compilador pode não vincular o RTTI da classe se ela não for referenciada diretamente em código, e o `class constructor` nunca chega a executar |
+
+### Exemplo completo — interface, classe e handler
+
+```pascal
+IClienteInsertDTO = interface(IInsertDTOBase)
+  ['{7B1F2C10-2E4A-4F2B-9A11-1F0F6D0B9A21}']
+  function GetNome: string;
+  function GetEmail: string;
+  function GetTelefone: IOptString;          // campo opcional no corpo
+  property Nome: string read GetNome;
+  property Email: string read GetEmail;
+  property Telefone: IOptString read GetTelefone;
+end;
+
+TClienteInsertDTO = class(TInsertDTOBase, IClienteInsertDTO)
+private
+  FNome: string;
+  FEmail: string;
+  FTelefone: IOptString;
+public
+  class constructor Create;    // registra IClienteInsertDTO -> TClienteInsertDTO
+  [SwagProp('Nome do cliente', 'Maria Silva')]
+  function GetNome: string;
+  [SwagProp('E-mail do cliente', 'maria@exemplo.com', 'email')]
+  function GetEmail: string;
+  [SwagProp('Telefone (opcional)', '11999998888')]
+  function GetTelefone: IOptString;
+end;
+
+class constructor TClienteInsertDTO.Create;
+begin
+  TJsonMapper.RegisterMapping<IClienteInsertDTO, TClienteInsertDTO>;
+end;
+
+// Controller — nenhum mapeamento manual de campo
+procedure HandleInsertCliente(Req: THorseRequest; Res: THorseResponse; Next: TNextProc);
+var
+  LDto: IClienteInsertDTO;
+  LResult: IClienteResponseDTO;
+begin
+  { TJsonMapper busca a classe registrada para IClienteInsertDTO (ver
+    TClienteInsertDTO.Create) e preenche cada property a partir do JSON do
+    corpo da requisição. Sem essa classe registrada, EJsonMapperException
+    é disparada aqui — nunca falha silenciosa. }
+  LDto := TJsonMapper.FromJson<IClienteInsertDTO>(Req.Body);
+
+  LResult := AService.Insert(LDto);
+  Res.Status(201).ContentType('application/json; charset=utf-8')
+     .Send(TJsonMapper.ToJson<IClienteResponseDTO>(LResult));
+end;
+```
+
+### Quando NÃO é `FromJson<I>`
+
+DTOs de **Find** (paginação/filtros por query string) continuam montados campo a campo com
+`ParseQueryInt`/`ParseQueryStr` a partir de `Req.Query[...]` (ver seção "DTO Base" acima) — não
+têm corpo JSON, então não há o que o mapper resolva. `FromJson<I>`/`ToJson<I>` são para o corpo
+de `POST`/`PATCH`/`PUT` e para a serialização da resposta.
+
 ---
 
 ## Configuração (TAppConfig)
