@@ -61,7 +61,8 @@ type
   ///     end));
   TErrorHandlerMiddleware = class
   public
-    class function New(AOnError: TLogProc = nil): THorseCallback;
+    class function New: THorseCallback; overload;
+    class function New(AOnError: TLogProc): THorseCallback; overload;
   end;
 
 implementation
@@ -101,6 +102,11 @@ begin
 end;
 
 { TErrorHandlerMiddleware }
+
+class function TErrorHandlerMiddleware.New: THorseCallback;
+begin
+  Result := New(nil);
+end;
 
 class function TErrorHandlerMiddleware.New(AOnError: TLogProc): THorseCallback;
 begin
