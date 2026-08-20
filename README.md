@@ -176,11 +176,33 @@ O `Db.SqlLoader` não embute recursos — cada projeto fornece os seus. Adicione
 {$R 'src\Db\sql\queries.res'}
 ```
 
-E compile o arquivo de recursos com:
+O `.res` é gerado a partir do `.rc` via `brcc32.exe`:
 
 ```bash
 brcc32.exe -fo src\Db\sql\queries.res src\Db\sql\queries.rc
 ```
+
+**Não rode esse comando manualmente a cada SQL novo.** É fácil esquecer — e nesse caso o `.exe`
+compila normalmente, sem erro nenhum, só que embutindo a versão *anterior* do SQL (o `.res` que
+já estava em disco/commitado). Isso é especialmente comum ao trocar de máquina: um `pull` traz o
+`.sql` novo, mas o `.res` só reflete isso depois de alguém rodar `brcc32` de novo naquela máquina.
+
+Copie [`tools/build_sql_res.bat`](tools/build_sql_res.bat) (desta lib) para o projeto consumidor
+e registre como **Pre-Build Event** do `.dproj` (Project Options > Building > Build Events >
+Pre-build event):
+
+```
+call tools\build_sql_res.bat
+```
+
+O script varre toda a `sql/` e recompila todo `.rc` encontrado — cobre tanto um único
+`queries.rc` quanto múltiplos `.rc` (ex.: suporte a mais de um banco, um `.rc` por dialeto). Roda
+em toda build, sem tentar detectar "mudou ou não" (o `brcc32` é rápido o bastante pra isso não
+valer a complexidade). Se algum `.rc` falhar, o script sai com código de erro, o que aborta a
+compilação — nunca gera um `.exe` com `.res` desatualizado ou quebrado.
+
+Limitação: Pre-Build Event só dispara para build feito através do `.dproj` (IDE ou `msbuild`). Um
+`dcc32 projeto.dpr` direto ignora Build Events — nesse caso o `.res` em disco é usado sem aviso.
 
 ### 6. Submodule swag-doc
 

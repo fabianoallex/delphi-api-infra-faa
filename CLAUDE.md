@@ -16,7 +16,7 @@ Ao criar um domínio `Pedido` (ou qualquer outro), siga esta sequência:
 4. `src/Domain/Pedido/Pedido.Controller.pas` — `TPedidoController.RegisterRoutes`
 5. Adicionar as 4 units ao DPR na seção `uses` (com caminhos relativos)
 6. Criar os arquivos SQL: `PEDIDO.FIND.sql`, `PEDIDO.FIND_COUNT.sql`, `PEDIDO.FIND_BY_ID.sql`, `PEDIDO.INSERT.sql`, `PEDIDO.UPDATE.sql`, `PEDIDO.DELETE.sql`
-7. Registrar cada SQL em `sql/queries.rc` e recompilar: `brcc32.exe -fo sql\queries.res sql\queries.rc`
+7. Registrar cada SQL em `sql/queries.rc` — recompilação do `.res` é automática via pre-build event (ver "Build automático dos `.res`" logo abaixo), não rode `brcc32.exe` manualmente
 8. No `begin` do DPR: montar as dependências (Repository → Service) e chamar `RegisterRoutes`
 9. Registrar o endpoint MCP antes de `TRouteDoc.Serve` (ver padrão de inicialização)
 
@@ -374,6 +374,56 @@ A decisão de "esse filtro é obrigatório ou opcional" nasce da regra de negóc
 do tipo que parecia mais natural escrever no DTO — ao criar a interface do DTO, primeiro decida
 isso olhando a query que vai alimentá-la, nunca o contrário.
 
+### Build automático dos `.res` — nunca rode `brcc32` na mão
+
+Cada `.sql` só existe na API compilada depois de passar por `brcc32.exe` (`.rc` → `.res`), e o
+`{$R}` no DPR embute esse `.res`. Enquanto isso for um passo manual, existe uma janela onde
+alguém edita/adiciona um `.sql`, esquece de recompilar o `.res`, e o `.exe` gerado compila sem
+erro nenhum — só que rodando a versão **anterior** do SQL. É especialmente fácil isso acontecer
+ao trocar de máquina (clone novo, ou pull numa máquina que não tinha o hábito de recompilar): o
+`.res` commitado no repositório é o que fica valendo até alguém rodar `brcc32` de novo.
+
+**Solução: pre-build event no `.dproj`, não lembrete manual.** Copie
+[`tools/build_sql_res.bat`](tools/build_sql_res.bat) (desta lib) para o projeto consumidor e
+registre como Pre-Build Event:
+
+```
+Project Options > Building > Build Events > Pre-build event:
+  call tools\build_sql_res.bat
+```
+
+O script varre toda a árvore `sql/` (funciona tanto pro caso simples — `sql/queries.rc` — quanto
+pro multi-banco — `sql/fb/fb.rc` + `sql/pg/pg.rc`, ou qualquer outra estrutura de subpastas) e
+recompila **todo** `.rc` encontrado, sempre, em toda build — não tenta detectar "mudou ou não":
+`brcc32` é rápido o bastante pra isso não valer a complexidade, e eliminar a lógica de
+staleness elimina também uma categoria inteira de bug (a lógica de detecção errada). Se algum
+`.rc` falhar ao compilar, o script sai com código de erro != 0, o que aborta a compilação — o
+`.exe` nunca chega a ser gerado com um `.res` que falhou.
+
+O script resolve `sql/` a partir da própria localização do `.bat` (`%~dp0..\sql`), nunca do
+working directory de quem chama — por isso o mesmo arquivo funciona chamado de qualquer `.dproj`
+do repositório, só ajustando o caminho relativo até ele. **Registre o Pre-Build Event em todo
+`.dproj` que embute esses `{$R}`, não só no da API principal** — os projetos de teste
+(unitário/integração) tipicamente também referenciam os mesmos resources (via `Db.SqlLoader`
+para testes que batem no banco de verdade), e ficam expostos ao mesmo risco de `.res`
+desatualizado se ficarem de fora:
+
+```
+tests\Unit\MeuProjeto.UnitTests.dproj:
+  call ..\..\tools\build_sql_res.bat
+
+tests\Integration\MeuProjeto.IntegrationTests.dproj:
+  call ..\..\tools\build_sql_res.bat
+```
+
+**Limite conhecido:** Pre-Build Event só dispara quando a compilação passa pelo `.dproj` (IDE ou
+`msbuild` no `.dproj`). Rodar `dcc32 projeto.dpr` direto ignora o `.dproj` inteiro, Build Events
+inclusive — nesse caminho o `.res` que estiver em disco é usado sem aviso. Se o projeto tiver
+motivo para builds fora do `.dproj`, considere reforçar com uma checagem em runtime (ex.: hash do
+conteúdo `.sql` embutido como resource extra, comparado contra o hash recalculado dos `.sql` em
+disco num teste de conformação) — mas para o fluxo normal (IDE ou CI via `.dproj`), o pre-build
+event já fecha o problema.
+
 ---
 
 ## Padrão de Repository
@@ -627,19 +677,19 @@ Organize os arquivos em subpastas por banco. Os nomes de arquivo são idênticos
 sql/
   fb/
     fb.rc           — SQL_FB_MIG_0001, SQL_FB_PEDIDO_FIND ...
-    fb.bat          — brcc32 fb.rc -fo fb.res
+    fb.res          — gerado, ver "Build automático dos .res" abaixo
     MIG.0001.sql    — DDL Firebird  (terminador ^)
     PEDIDO.FIND.sql
     ...
   pg/
     pg.rc           — SQL_PG_MIG_0001, SQL_PG_PEDIDO_FIND ...
-    pg.bat          — brcc32 pg.rc -fo pg.res
+    pg.res          — gerado, ver "Build automático dos .res" abaixo
     MIG.0001.sql    — DDL PostgreSQL (terminador ;)
     PEDIDO.FIND.sql
     ...
 ```
 
-O prefixo (`FB` / `PG`) é o `SQLDirectory` do `TFDConfig` e vira o segmento do meio no nome do resource: `SQL_<DIRECTORY>_<NOME>`. Ambos os `.res` ficam embutidos no executável via `{$R}`; em runtime, apenas os resources do dialeto ativo são acessados.
+O prefixo (`FB` / `PG`) é o `SQLDirectory` do `TFDConfig` e vira o segmento do meio no nome do resource: `SQL_<DIRECTORY>_<NOME>`. Ambos os `.res` ficam embutidos no executável via `{$R}`; em runtime, apenas os resources do dialeto ativo são acessados. Não crie `.bat` por pasta (`fb.bat`, `pg.bat`) — o script único descrito abaixo varre `sql/` inteira e recompila todos os `.rc` que encontrar, dialeto único ou múltiplos bancos, sem distinção.
 
 ### DPR — factory única, seleção em runtime
 
@@ -785,7 +835,7 @@ Dois pontos onde aplicar por padrão em todo projeto novo:
 - Usar `INullXxx` (sem `Opt`) num campo de DTO que vem de JSON ou query string (Insert/Update/Find) — o tipo não distingue "chave ausente" de `"campo": null` (as duas colapsam pro mesmo `IsNull = True`, ver "`IOptXxx` vs `INullXxx` vs `IOptNullXxx`"). `INullXxx` é só para Response DTO lendo linha de banco
 - `ExecSql` em INSERT com RETURNING — use `Open`
 - SQL inline no código — todo SQL vai em arquivo `.sql` + `queries.rc`
-- Esquecer de recompilar `queries.res` após adicionar SQL novo
+- Depender de lembrar de rodar `brcc32` manualmente após adicionar/editar SQL — configure o pre-build event (ver "Build automático dos `.res`" em "Padrão de SQL") em vez de confiar em disciplina humana
 - `Writeln` direto em código que pode rodar fora da main thread (handler HTTP, `OnRequest` de pipe-server, thread de pool) — usar `SafeWriteln` (`Common.SafeLog`)
 - `IOptional.Value` sem checar `HasValue` antes
 - Checar `Assigned` num campo `IOptXxx`/`INullXxx`/`IOptNullXxx` individual do DTO antes de `.HasValue` — o getter já garante não-nil via `TOptionals.Safe` (ver "Campos opcionais"); `Assigned` só se justifica no `ADto` inteiro, nunca nos seus campos
