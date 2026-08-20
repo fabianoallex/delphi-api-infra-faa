@@ -21,9 +21,13 @@ REM no CLAUDE.md / README desta lib.
 
 setlocal enabledelayedexpansion
 
+set "BRCC32="
 where brcc32.exe >nul 2>nul
-if errorlevel 1 (
-    echo [ERRO] brcc32.exe nao encontrado no PATH.
+if not errorlevel 1 set "BRCC32=brcc32.exe"
+if not defined BRCC32 if defined BDS if exist "%BDS%\bin\brcc32.exe" set "BRCC32=%BDS%\bin\brcc32.exe"
+
+if not defined BRCC32 (
+    echo [ERRO] brcc32.exe nao encontrado no PATH nem em %%BDS%%\bin.
     echo Rode a partir da IDE do RAD Studio ou de um prompt com rsvars.bat carregado.
     exit /b 1
 )
@@ -41,7 +45,7 @@ for /r "%SQL_ROOT%" %%F in (*.rc) do (
     set "FOUND=1"
     echo Compilando %%~fF ...
     pushd "%%~dpF"
-    brcc32.exe "%%~nxF" -fo "%%~nF.res"
+    "%BRCC32%" "%%~nxF" -fo "%%~nF.res"
     if errorlevel 1 (
         echo [ERRO] Falha ao compilar %%~fF
         set "FAILED=1"
