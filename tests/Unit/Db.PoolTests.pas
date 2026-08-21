@@ -182,6 +182,10 @@ type
     [Test] procedure Test_Pool_IdleTimeoutConfig_ValoresPadraoEValidacao;
     [Test] procedure Test_Pool_IdleSweep_DestroyNaoTrava;
     [Test] procedure Test_Pool_Concorrencia_ComIdleSweepAtivo;
+    [Test] procedure Test_Pool_Evento_ConnectionCreated_DisparaAoCrescer;
+    [Test] procedure Test_Pool_Evento_ConnectionDiscarded_TestConnectionFalha;
+    [Test] procedure Test_Pool_Evento_AcquireTimeout_DisparaAntesDaExcecao;
+    [Test] procedure Test_Pool_Evento_IdleSweepClosed_DisparaComContagem;
   private
     procedure MaxConnectionsEstoura_Method;
   end;
@@ -1173,6 +1177,210 @@ begin
     );
   finally
     TSleep.Reset;
+  end;
+end;
+
+{ TPoolTests — eventos e snapshot }
+
+procedure TPoolTests.Test_Pool_Evento_ConnectionCreated_DisparaAoCrescer;
+var
+  LConfig: IConnectionPoolConfig;
+  LFactory: IDBFactory;
+  LPool: IDBConnectionPool;
+  LEvents: TList<TPoolEvent>;
+  LConn: IDBConnection;
+begin
+  LConfig := TConnectionPoolConfig.Create;
+  LConfig.IniConnections := 0;
+  LConfig.MaxConnections := 10;
+
+  LFactory := TDBFactoryMock.Create;
+  LEvents := TList<TPoolEvent>.Create;
+  try
+    LPool := TConnectionPool.Create(LFactory, LConfig,
+      procedure(const AEvent: TPoolEvent)
+      begin
+        LEvents.Add(AEvent);
+      end);
+
+    Assert.AreEqual(0, LEvents.Count,
+      'Sem IniConnections, a construção do pool não deve disparar eventos');
+
+    LConn := LPool.AcquireConnection;
+
+    Assert.AreEqual(1, LEvents.Count,
+      'Criar 1 conexão física deve disparar exatamente 1 evento pekConnectionCreated');
+    Assert.AreEqual<TPoolEventKind>(pekConnectionCreated, LEvents[0].Kind);
+    Assert.AreEqual(1, LEvents[0].ActiveConnections);
+    Assert.AreEqual(10, LEvents[0].MaxConnections);
+
+    Assert.AreEqual(Int64(1), LPool.GetSnapshot.TotalCreated);
+  finally
+    LEvents.Free;
+  end;
+end;
+
+procedure TPoolTests.Test_Pool_Evento_ConnectionDiscarded_TestConnectionFalha;
+var
+  LConfig: IConnectionPoolConfig;
+  LFactory: IDBFactory;
+  LMockFactory: TDBFactoryMock;
+  LPool: IDBConnectionPool;
+  LConn: IDBConnection;
+  LClock: TFakeClock;
+  LEvents: TList<TPoolEvent>;
+  BaseTime: TDateTime;
+begin
+  // Mesmo cenário de Test_Pool_ConexaoInativaFalha: 2 conexões no ramp-up,
+  // a 1ª falha no teste de vivacidade (>=120s ociosa) e é descartada, a 2ª
+  // é reaproveitada.
+  BaseTime := StrToDateTime('28/12/2025 11:44:18');
+
+  LClock := TFakeClock.Create;
+  LClock.SetDefaultTime(BaseTime);
+  LClock.EnqueueTime(BaseTime);                      // LastRelease conn1
+  LClock.EnqueueTime(BaseTime + (50 / 86400));       // LastRelease conn2
+  LClock.EnqueueTime(BaseTime + (121 / 86400));      // 121s p/ conn1 → testa → falha → remove
+  LClock.EnqueueTime(BaseTime + (130 / 86400));      // 80s p/ conn2 → não testa → usa
+
+  TClock.SetClock(LClock);
+  LEvents := TList<TPoolEvent>.Create;
+  try
+    LConfig := TConnectionPoolConfig.Create;
+    LConfig.IniConnections := 2;
+    LConfig.MaxConnections := 10;
+
+    LMockFactory := TDBFactoryMock.Create;
+    LFactory := LMockFactory;
+    LPool := TConnectionPool.Create(LFactory, LConfig,
+      procedure(const AEvent: TPoolEvent)
+      begin
+        LEvents.Add(AEvent);
+      end);
+
+    LEvents.Clear; // descarta os 2 pekConnectionCreated do ramp-up inicial
+
+    LMockFactory.SimulateTestConnectionFail := True;
+    LConn := LPool.AcquireConnection;
+
+    Assert.AreEqual(1, LEvents.Count,
+      'O descarte da conexão morta deve disparar exatamente 1 evento pekConnectionDiscarded');
+    Assert.AreEqual<TPoolEventKind>(pekConnectionDiscarded, LEvents[0].Kind);
+    Assert.AreEqual<TPoolDiscardReason>(pdrStaleCheckFailed, LEvents[0].DiscardReason);
+    Assert.AreEqual(1, LEvents[0].ActiveConnections,
+      'Após o descarte, ActiveConnections deve refletir só a conexão restante');
+
+    Assert.AreEqual(Int64(2), LPool.GetSnapshot.TotalCreated);
+    Assert.AreEqual(Int64(1), LPool.GetSnapshot.TotalDiscarded);
+  finally
+    TClock.Reset;
+    LEvents.Free;
+  end;
+end;
+
+procedure TPoolTests.Test_Pool_Evento_AcquireTimeout_DisparaAntesDaExcecao;
+var
+  LConfig: IConnectionPoolConfig;
+  LFactory: IDBFactory;
+  LEvents: TList<TPoolEvent>;
+  LEvent: TPoolEvent;
+  LRaised: Boolean;
+  LTimeoutCount: Integer;
+begin
+  // Mesmo cenário de Test_Pool_MaxConnections_Estoura: IniConnections (5) >
+  // MaxConnections (3) força o ramp-up a estourar EPoolTimeoutException.
+  LConfig := TConnectionPoolConfig.Create;
+  LConfig.MaxConnections := 3;
+  LConfig.IniConnections := 5;
+
+  LFactory := TDBFactoryMock.Create;
+  LEvents := TList<TPoolEvent>.Create;
+  TSleep.SetSleep(TFakeSleep.Create);
+  try
+    LRaised := False;
+    try
+      TConnectionPool.Create(LFactory, LConfig,
+        procedure(const AEvent: TPoolEvent)
+        begin
+          LEvents.Add(AEvent);
+        end).Free;
+    except
+      on E: EPoolTimeoutException do
+        LRaised := True;
+    end;
+
+    Assert.IsTrue(LRaised, 'Deveria ter lançado EPoolTimeoutException');
+
+    LTimeoutCount := 0;
+    for LEvent in LEvents do
+      if LEvent.Kind = pekAcquireTimeout then
+        Inc(LTimeoutCount);
+
+    Assert.AreEqual(1, LTimeoutCount,
+      'Deve disparar exatamente 1 evento pekAcquireTimeout, logo antes da exceção');
+  finally
+    TSleep.Reset;
+    LEvents.Free;
+  end;
+end;
+
+procedure TPoolTests.Test_Pool_Evento_IdleSweepClosed_DisparaComContagem;
+var
+  LConfig: IConnectionPoolConfig;
+  LFactory: IDBFactory;
+  LPoolIntf: IDBConnectionPool; // ver comentário em Test_Pool_IdleTimeout_Desligado_NaoEvictaNada
+  LPool: TConnectionPool;
+  LClock: TFakeClock;
+  LConn1, LConn2, LConn3: IDBConnection;
+  LEvents: TList<TPoolEvent>;
+  BaseTime: TDateTime;
+begin
+  // Mesmo cenário de Test_Pool_IdleTimeout_EvictaSoOsMaisAntigos: só a
+  // conexão liberada há mais tempo deve ser fechada pela varredura.
+  BaseTime := StrToDateTime('28/12/2025 11:44:18');
+  LClock := TFakeClock.Create;
+  LClock.SetDefaultTime(BaseTime);
+  TClock.SetClock(LClock);
+  LEvents := TList<TPoolEvent>.Create;
+  try
+    LConfig := TConnectionPoolConfig.Create;
+    LConfig.IniConnections := 0;
+    LConfig.MaxConnections := 10;
+
+    LFactory := TDBFactoryMock.Create;
+    LPoolIntf := TConnectionPool.Create(LFactory, LConfig,
+      procedure(const AEvent: TPoolEvent)
+      begin
+        LEvents.Add(AEvent);
+      end);
+    LPool := LPoolIntf as TConnectionPool;
+
+    LConn1 := LPoolIntf.AcquireConnection;
+    LConn2 := LPoolIntf.AcquireConnection;
+    LConn3 := LPoolIntf.AcquireConnection;
+
+    LClock.SetDefaultTime(BaseTime);
+    LConn1 := nil; // LastRelease = T0        (65s de idade no sweep abaixo)
+    LClock.SetDefaultTime(BaseTime + (10 / 86400));
+    LConn2 := nil; // LastRelease = T0+10s     (55s de idade — NÃO deve sair)
+    LClock.SetDefaultTime(BaseTime + (20 / 86400));
+    LConn3 := nil; // LastRelease = T0+20s     (45s de idade — NÃO deve sair)
+
+    LEvents.Clear; // descarta os 3 pekConnectionCreated do crescimento acima
+
+    LClock.SetDefaultTime(BaseTime + (65 / 86400)); // "agora" = T0+65s
+    LPool.SweepIdleConnections(60);
+
+    Assert.AreEqual(1, LEvents.Count,
+      'Uma varredura que fecha conexões deve disparar exatamente 1 evento pekIdleSweepClosed');
+    Assert.AreEqual<TPoolEventKind>(pekIdleSweepClosed, LEvents[0].Kind);
+    Assert.AreEqual(1, LEvents[0].ClosedCount,
+      'Só a conexão mais antiga (65s de idade, >=60) deve ter sido fechada');
+
+    Assert.AreEqual(Int64(1), LPoolIntf.GetSnapshot.TotalIdleSwept);
+  finally
+    TClock.Reset;
+    LEvents.Free;
   end;
 end;
 

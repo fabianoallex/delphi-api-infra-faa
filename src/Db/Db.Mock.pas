@@ -245,6 +245,7 @@ type
     function AcquireQuery(out AQuery: IQuery; ATransaction: ITransaction = nil): IScopeTransaction;
     function GetActiveConnections: Integer;
     function GetPoolSize: Integer;
+    function GetSnapshot: TPoolSnapshot;
   end;
 
   // IDBConnection mínimo — todas as operações são noop
@@ -1066,6 +1067,7 @@ function TMockConnectionPool.GetActiveConnections: Integer; begin Result := 0; e
 function TMockConnectionPool.GetPoolSize: Integer;          begin Result := 0; end;
 function TMockConnectionPool.GetWaitMaxAttemps: Integer;    begin Result := 0; end;
 function TMockConnectionPool.GetWaitMilliseconds: Integer;  begin Result := 0; end;
+function TMockConnectionPool.GetSnapshot: TPoolSnapshot;    begin Result := Default(TPoolSnapshot); end;
 
 { TMockDBConnection }
 

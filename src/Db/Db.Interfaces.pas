@@ -229,6 +229,22 @@ type
     property Script: TStrings read GetScript write SetScript;
   end;
 
+  // Contadores acumulados desde a criação do pool + estado atual — pensado
+  // para leitura periódica (health check, timer de métricas), não para
+  // reagir a cada mudança. Complementa TPoolEvent (Db.Connection.Pool): o
+  // evento cobre "aconteceu agora", o snapshot cobre "quanto já aconteceu
+  // no total e como está agora".
+  TPoolSnapshot = record
+    ActiveConnections: Integer;  // conexões físicas vivas agora (ociosas + em uso)
+    PoolSize: Integer;           // conexões ociosas na fila agora
+    MaxConnections: Integer;
+    IniConnections: Integer;
+    TotalCreated: Int64;         // conexões físicas criadas desde o início (ramp-up + crescimento sob carga)
+    TotalDiscarded: Int64;       // conexões descartadas por falha de reconexão ou teste de vivacidade
+    TotalTimeouts: Int64;        // AcquireConnection que esgotaram as tentativas de espera (EPoolTimeoutException)
+    TotalIdleSwept: Int64;       // conexões fechadas por PoolIdleTimeoutSeconds
+  end;
+
   { IDBConnectionPool }
 
   IDBConnectionPool = interface
@@ -239,6 +255,10 @@ type
     function AcquireQuery(out AQuery: IQuery; ATransaction: ITransaction = nil): IScopeTransaction;
     function GetActiveConnections: Integer;
     function GetPoolSize: Integer;
+    // Estado atual + contadores acumulados, para logging/métricas periódicos
+    // (ver TPoolSnapshot). Implementações que não rastreiam os totais (ex.:
+    // pools de teste/mock) podem devolver os contadores zerados.
+    function GetSnapshot: TPoolSnapshot;
     property WaitMaxAttemps: Integer read GetWaitMaxAttemps;
     property WaitMilliseconds: Integer read GetWaitMilliseconds;
   end;

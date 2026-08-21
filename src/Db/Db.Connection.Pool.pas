@@ -83,6 +83,40 @@ type
     procedure SetIdleCheckIntervalMs(AValue: Integer);
   end;
 
+  // Eventos do pool cobrem só o que é sinal de operação anormal ou de
+  // crescimento de capacidade — nunca o caminho feliz (acquire/release de uma
+  // conexão já pronta no pool, que acontece em toda requisição). Diferente de
+  // TMigrationEvent (Db.Migrations, que roda poucas vezes no startup), aqui
+  // NÃO existe fallback de log no console quando AOnEvent não é informado:
+  // silêncio é o comportamento correto de um pool saudável, e notificar em
+  // toda acquire/release geraria uma linha de log por requisição.
+  TPoolEventKind = (
+    pekConnectionCreated,    // nova conexão física criada (ramp-up inicial ou crescimento sob carga)
+    pekConnectionDiscarded,  // uma conexão do pool foi descartada (falhou reconectar ou falhou o teste de vivacidade)
+    pekAcquireThrottled,     // AcquireConnection precisou esperar (pool no limite) antes de conseguir uma conexão
+    pekAcquireTimeout,       // esgotou as tentativas de espera; EPoolTimeoutException será lançada em seguida
+    pekIdleSweepClosed       // a varredura de ociosidade fechou uma ou mais conexões
+  );
+
+  TPoolDiscardReason = (
+    pdrConnectFailed,     // ConnectionItem.Connection.Connect falhou ao reconectar
+    pdrStaleCheckFailed   // FFactory.TestConnection retornou False (conexão parada/morta)
+  );
+
+  TPoolEvent = record
+    Kind: TPoolEventKind;
+    ActiveConnections: Integer;  // FActiveConnections no momento do evento
+    PoolSize: Integer;           // conexões ociosas na fila no momento do evento
+    MaxConnections: Integer;
+    IniConnections: Integer;
+    WaitAttempts: Integer;             // pekAcquireThrottled / pekAcquireTimeout
+    ClosedCount: Integer;              // pekIdleSweepClosed
+    DiscardReason: TPoolDiscardReason; // pekConnectionDiscarded
+    ErrorMessage: string;              // pekConnectionDiscarded (mensagem da exceção de Connect, se houver)
+  end;
+
+  TPoolEventProc = reference to procedure(const AEvent: TPoolEvent);
+
   { TConnectionPool }
 
   TConnectionPool = class(TInterfacedObject, IDBConnectionPool, IDBConnectionPoolInternalActions)
@@ -99,17 +133,28 @@ type
     FIdleCheckIntervalMs: Integer;
     FIdleSweepThread: TThread;
     FIdleSweepWake: TEvent;
+    FOnEvent: TPoolEventProc;
+    FTotalCreated: Int64;
+    FTotalDiscarded: Int64;
+    FTotalTimeouts: Int64;
+    FTotalIdleSwept: Int64;
     procedure CreateInitialConnections;
     procedure IncrementActiveConnections;
     procedure DecrementActiveConnections;
     function NewConnection: IDBConnection;
     procedure StartIdleSweep;
     procedure StopIdleSweep;
+    function BaseEvent(AKind: TPoolEventKind): TPoolEvent;
+    procedure Notify(const AEvent: TPoolEvent);
   protected
     procedure ReleaseConnection(AConn: IDBConnection);
     procedure ReleaseQuery(var AQuery: IQuery);
   public
-    constructor Create(AFactory: IDBFactory; AConfig: IConnectionPoolConfig = nil);
+    // AOnEvent é opcional — sem ele, o pool simplesmente não notifica nada
+    // (ver comentário em TPoolEventKind sobre por que não há fallback de
+    // console aqui, ao contrário de TDBMigrationEngine).
+    constructor Create(AFactory: IDBFactory; AConfig: IConnectionPoolConfig = nil;
+      AOnEvent: TPoolEventProc = nil);
     destructor Destroy; override;
     function AcquireConnection: IDBConnection;
     function AcquireQuery(out AQuery: IQuery; ATransaction: ITransaction = nil): IScopeTransaction;
@@ -117,6 +162,9 @@ type
     function GetPoolSize: Integer;
     function GetWaitMaxAttemps: Integer;
     function GetWaitMilliseconds: Integer;
+    // Estado atual + contadores acumulados desde a criação do pool — ver
+    // TPoolSnapshot (Db.Interfaces) para o propósito de cada campo.
+    function GetSnapshot: TPoolSnapshot;
     /// Fecha, imediatamente, as conexões ociosas mais antigas do pool que
     /// ultrapassarem IdleTimeoutSeconds, nunca abaixo de IniConnections.
     /// A thread de varredura automática chama a versão sem parâmetro
@@ -376,7 +424,8 @@ end;
 
 { TConnectionPool }
 
-constructor TConnectionPool.Create(AFactory: IDBFactory; AConfig: IConnectionPoolConfig);
+constructor TConnectionPool.Create(AFactory: IDBFactory; AConfig: IConnectionPoolConfig;
+  AOnEvent: TPoolEventProc);
 
   // Referência fraca para quebrar ciclo circular TConnectionPool <-> IDBFactory
   procedure SetWeak(aInterfaceField: PInterface; const aValue: IInterface);
@@ -385,6 +434,8 @@ constructor TConnectionPool.Create(AFactory: IDBFactory; AConfig: IConnectionPoo
   end;
 
 begin
+  FOnEvent := AOnEvent;
+
   if Assigned(AConfig) then
   begin
     FIniConnections  := AConfig.IniConnections;
@@ -442,6 +493,34 @@ begin
   inherited Destroy;
 end;
 
+function TConnectionPool.BaseEvent(AKind: TPoolEventKind): TPoolEvent;
+begin
+  Result := Default(TPoolEvent);
+  Result.Kind := AKind;
+  Result.ActiveConnections := FActiveConnections;
+  Result.PoolSize := FPool.Count;
+  Result.MaxConnections := FMaxConnections;
+  Result.IniConnections := FIniConnections;
+end;
+
+procedure TConnectionPool.Notify(const AEvent: TPoolEvent);
+begin
+  if Assigned(FOnEvent) then
+    FOnEvent(AEvent);
+end;
+
+function TConnectionPool.GetSnapshot: TPoolSnapshot;
+begin
+  Result.ActiveConnections := FActiveConnections;
+  Result.PoolSize := FPool.Count;
+  Result.MaxConnections := FMaxConnections;
+  Result.IniConnections := FIniConnections;
+  Result.TotalCreated := FTotalCreated;
+  Result.TotalDiscarded := FTotalDiscarded;
+  Result.TotalTimeouts := FTotalTimeouts;
+  Result.TotalIdleSwept := FTotalIdleSwept;
+end;
+
 procedure TConnectionPool.StartIdleSweep;
 begin
   // Evento manual-reset: SetEvent no Terminate acorda a thread na hora,
@@ -479,6 +558,7 @@ var
   LToClose: TList<IDBConnection>;
   LItem: TConnectionItem;
   LConn: IDBConnection;
+  LEvent: TPoolEvent;
 begin
   if AIdleTimeoutSeconds <= 0 then
     Exit;
@@ -514,6 +594,14 @@ begin
       except
         // ignora — a conexão está sendo descartada de qualquer forma
       end;
+    end;
+
+    if LToClose.Count > 0 then
+    begin
+      Inc(FTotalIdleSwept, LToClose.Count);
+      LEvent := BaseEvent(pekIdleSweepClosed);
+      LEvent.ClosedCount := LToClose.Count;
+      Notify(LEvent);
     end;
   finally
     LToClose.Free;
@@ -568,6 +656,16 @@ var
   ShouldCreateNew: Boolean;
   ShouldUseFromPool: Boolean;
   RealConnection: IDBConnection;
+  LThrottleEvent: TPoolEvent;
+
+  procedure NotifyThrottledIfWaited;
+  begin
+    if WaitAttempts = 0 then
+      Exit;
+    LThrottleEvent := BaseEvent(pekAcquireThrottled);
+    LThrottleEvent.WaitAttempts := WaitAttempts;
+    Notify(LThrottleEvent);
+  end;
 
   procedure CheckPool;
   begin
@@ -598,9 +696,13 @@ var
       DecrementActiveConnections;
       raise;
     end;
+    Inc(FTotalCreated);
+    Notify(BaseEvent(pekConnectionCreated));
   end;
 
   function TryGetConnectionFromPool(out AConnection: IDBConnection): Boolean;
+  var
+    LEvent: TPoolEvent;
   begin
     Result := False;
 
@@ -609,12 +711,20 @@ var
       try
         ConnectionItem.Connection.Connect;
       except
-        try
-          ConnectionItem.Connection.Disconnect(True);
-        finally
-          DecrementActiveConnections;
+        on E: Exception do
+        begin
+          try
+            ConnectionItem.Connection.Disconnect(True);
+          finally
+            DecrementActiveConnections;
+          end;
+          Inc(FTotalDiscarded);
+          LEvent := BaseEvent(pekConnectionDiscarded);
+          LEvent.DiscardReason := pdrConnectFailed;
+          LEvent.ErrorMessage := E.Message;
+          Notify(LEvent);
+          Exit;
         end;
-        Exit;
       end;
     end;
 
@@ -627,6 +737,10 @@ var
         finally
           DecrementActiveConnections;
         end;
+        Inc(FTotalDiscarded);
+        LEvent := BaseEvent(pekConnectionDiscarded);
+        LEvent.DiscardReason := pdrStaleCheckFailed;
+        Notify(LEvent);
         Exit;
       end;
     end;
@@ -648,6 +762,7 @@ begin
     begin
       if TryGetNewConnection(RealConnection) then
       begin
+        NotifyThrottledIfWaited;
         Result := TConnectionWrapper.Create(Self, RealConnection);
         Exit;
       end;
@@ -661,14 +776,21 @@ begin
         Result := nil;
         Continue;
       end;
+      NotifyThrottledIfWaited;
       Result := TConnectionWrapper.Create(Self, RealConnection);
       Exit;
     end;
 
     if WaitAttempts >= FWaitMaxAttemps then
+    begin
+      Inc(FTotalTimeouts);
+      LThrottleEvent := BaseEvent(pekAcquireTimeout);
+      LThrottleEvent.WaitAttempts := WaitAttempts;
+      Notify(LThrottleEvent);
       raise EPoolTimeoutException.Create(
         FActiveConnections, FMaxConnections, FPool.Count, WaitAttempts
       );
+    end;
 
     TSleep.Sleep(FWaitMilliseconds);
     Inc(WaitAttempts);

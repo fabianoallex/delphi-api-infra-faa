@@ -267,7 +267,10 @@ type
     FComponentProvider: IDBComponentProvider;
     FContextTransactionProvider: IContextTransactionProvider;
   public
-    constructor Create(AConfig: IDatabaseConfig; AContextTransactionProvider: IContextTransactionProvider);
+    // AOnPoolEvent é opcional — repassado direto para TConnectionPool.Create
+    // (ver TPoolEventKind em Db.Connection.Pool para o que cada evento sinaliza).
+    constructor Create(AConfig: IDatabaseConfig; AContextTransactionProvider: IContextTransactionProvider;
+      AOnPoolEvent: TPoolEventProc = nil);
     destructor Destroy; override;
     function GetProvider: IDBComponentProvider;
     procedure SetProvider(AProvider: IDBComponentProvider);
@@ -1269,7 +1272,7 @@ end;
 { TFDFactory }
 
 constructor TFDFactory.Create(AConfig: IDatabaseConfig;
-  AContextTransactionProvider: IContextTransactionProvider);
+  AContextTransactionProvider: IContextTransactionProvider; AOnPoolEvent: TPoolEventProc);
 var
   LPoolConfig: IConnectionPoolConfig;
 begin
@@ -1284,7 +1287,7 @@ begin
   LPoolConfig.IdleTimeoutSeconds  := FConfig.PoolIdleTimeoutSeconds;
   LPoolConfig.IdleCheckIntervalMs := FConfig.PoolIdleCheckIntervalMs;
 
-  FPool := TConnectionPool.Create(Self, LPoolConfig);
+  FPool := TConnectionPool.Create(Self, LPoolConfig, AOnPoolEvent);
   FSqlLoader := TSQLLoader.Create((AConfig as TFDConfig).SQLDirectory);
 
   FContextTransactionProvider := AContextTransactionProvider;

@@ -1356,6 +1356,44 @@ POOL_IDLE_CHECK_INTERVAL_MS=30000
 
 Efeito colateral esperado: depois de um período ocioso longo, a primeira rajada de tráfego pós-ociosidade cria várias conexões físicas de uma vez (o pool foi esvaziado até o piso) — latência maior nesses primeiros requests, geralmente aceitável.
 
+### Eventos (`TPoolEventProc`) e snapshot de métricas (`GetSnapshot`)
+
+Diferente do `TDBMigrationEngine` (que dispara um evento em toda etapa, porque migrations rodam poucas vezes no startup), o pool é acionado em **toda** requisição — notificar em cada `AcquireConnection`/`ReleaseConnection` do caminho normal geraria uma linha de log por request. Por isso `TPoolEventProc` só dispara para o que é sinal de operação anormal ou de crescimento de capacidade, nunca para o acquire/release de uma conexão já pronta no pool:
+
+| `TPoolEventKind` | Quando dispara |
+|---|---|
+| `pekConnectionCreated` | Nova conexão física criada (ramp-up inicial ou crescimento sob carga) |
+| `pekConnectionDiscarded` | Uma conexão do pool foi descartada — `DiscardReason` diz se falhou reconectar (`pdrConnectFailed`, com `ErrorMessage`) ou falhou o teste de vivacidade após 120s ociosa (`pdrStaleCheckFailed`) |
+| `pekAcquireThrottled` | `AcquireConnection` precisou esperar (pool no limite) antes de conseguir uma conexão — `WaitAttempts` diz quantas tentativas |
+| `pekAcquireTimeout` | Esgotou `PoolWaitMaxAttemps`; disparado imediatamente antes de `EPoolTimeoutException` ser lançada |
+| `pekIdleSweepClosed` | A varredura de ociosidade fechou uma ou mais conexões — `ClosedCount` diz quantas |
+
+```pascal
+LFactory := TFDFactory.Create(LConfig, nil,
+  procedure(const AEvent: TPoolEvent)
+  begin
+    case AEvent.Kind of
+      pekConnectionDiscarded:
+        FileLog(['exception', 'pool'], 'Conexão descartada (%d): %s',
+          [Ord(AEvent.DiscardReason), AEvent.ErrorMessage]);
+      pekAcquireTimeout:
+        FileLog(['exception', 'pool'], 'Pool esgotado: %d/%d ativas, %d tentativas',
+          [AEvent.ActiveConnections, AEvent.MaxConnections, AEvent.WaitAttempts]);
+    end;
+  end);
+```
+
+`AOnEvent` é opcional — sem ele, o pool não notifica nada (**sem** fallback de `SafeWriteln`, ao contrário de `TDBMigrationEngine`: silêncio é o comportamento correto de um pool saudável). `TPoolEventKind` define quais campos de `TPoolEvent` estão preenchidos (ver comentários no próprio `Db.Connection.Pool.pas`).
+
+Para leitura periódica (health check, timer de métricas) em vez de reagir a cada evento, `IDBConnectionPool.GetSnapshot: TPoolSnapshot` expõe o estado atual (`ActiveConnections`, `PoolSize`) e os contadores acumulados desde a criação do pool (`TotalCreated`, `TotalDiscarded`, `TotalTimeouts`, `TotalIdleSwept`):
+
+```pascal
+LSnapshot := LFactory.GetPool.GetSnapshot;
+FileLog('metrics', 'pool: %d/%d ativas, %d ociosas, %d criadas, %d descartadas, %d timeouts',
+  [LSnapshot.ActiveConnections, LSnapshot.MaxConnections, LSnapshot.PoolSize,
+   LSnapshot.TotalCreated, LSnapshot.TotalDiscarded, LSnapshot.TotalTimeouts]);
+```
+
 ---
 
 ## Logging
