@@ -1122,3 +1122,10 @@ As referências de domínio apontam para o template [delphi-api-starter](https:/
 - Middleware CORS: `src/Middleware/Horse.Middleware.Cors.pas`
 - Middleware rate limiting: `src/Middleware/Horse.Middleware.RateLimit.pas`
 - Health check: `src/Common/Common.HealthCheck.pas`
+
+### Documentos de consulta pontual (não leia por padrão)
+
+- `docs/lazarus-compat.md` — avaliação de compatibilidade com Lazarus/FPC: bloqueios, tiers de
+  esforço, repo único vs projeto paralelo, e gatilhos de reavaliação. **Só abra se a tarefa for
+  especificamente sobre porte/compatibilidade FPC** — a análise já está fechada (veredito:
+  não portar sem consumidor FPC concreto), não precisa ser re-derivada.

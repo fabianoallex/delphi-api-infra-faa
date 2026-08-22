@@ -1560,6 +1560,31 @@ LConsumer := LFactory.CreateConsumer(LConfig);
 
 ---
 
+## Compatibilidade com Lazarus / Free Pascal
+
+Esta biblioteca é **Delphi-only hoje**. A limitação não é de portabilidade genérica — a
+arquitetura já é agnóstica em vários pontos (`Db.Interfaces` + `Db.Adapters.Registry` permitem
+adapter de banco externo, e o Horse tem suporte oficial a Lazarus/FPC). O que trava são três
+dependências sem equivalente direto no Free Pascal:
+
+| Desafio | Impacto |
+|---|---|
+| **RTTI estendida** — `TJsonMapper` percorre propriedades públicas via `GetProperties`, e o Swagger lê `[SwagProp]` em **métodos** via `TRttiMethod.GetAttributes`. O FPC só gera RTTI para membros `published` e não suporta atributos em métodos | O modelo declarativo de DTO + Swagger automático precisaria ser redesenhado, não apenas portado — é o bloqueio estrutural |
+| **FireDAC** — não existe no FPC | `Db.Adapters.FireDAC` e `Common.Helpers` seriam adapter novo sobre SQLdb/Zeos. Menos grave: já é o ponto de extensão previsto pelo desenho |
+| **Closures (`reference to`)** — disponíveis no FPC apenas via modeswitch em compilador de desenvolvimento, não no estável embarcado no Lazarus | Middlewares que capturam configuração em closure teriam que virar objetos com estado |
+
+Some-se a isso `System.JSON` → `fpjson` (API e ownership diferentes) e o submodule
+[SwagDoc](https://github.com/marcelojaloto/SwagDoc), sem porte FPC conhecido.
+
+Na prática, cerca de 55% do código (tipos opcionais, abstrações de banco, SQL loader, pool,
+migrations, mensageria) sairia quase de graça; os 45% restantes concentram todo o custo.
+
+A avaliação completa — tiers de esforço por unit, a decisão entre repo único e projeto paralelo,
+e os **gatilhos que devem disparar uma reavaliação** conforme os compiladores convergem — está em
+[`docs/lazarus-compat.md`](docs/lazarus-compat.md).
+
+---
+
 ## Licença
 
 MIT — consulte o arquivo [LICENSE](LICENSE).
