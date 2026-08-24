@@ -8,6 +8,13 @@ interface
 /// Writeln direto nesse contexto corrompe o buffer do console sob
 /// concorrência. Use SafeWriteln em qualquer ponto que possa ser chamado
 /// fora da main thread.
+///
+/// Num binário SEM {$APPTYPE CONSOLE} (serviço Windows, app VCL/FMX) não existe
+/// handle de saída padrão: `Writeln(Output)` levanta EInOutError (I/O error 105)
+/// na primeira chamada. O guard `IsConsole` torna SafeWriteln um no-op nesses
+/// binários, para que o mesmo código de startup sirva ao executável console e ao
+/// serviço sem derrubar o segundo. Log persistente é responsabilidade do
+/// Common.FileLog — que grava igual nos dois.
 procedure SafeWriteln(const AText: string); overload;
 procedure SafeWriteln(const AFormatStr: string; const AArgs: array of const); overload;
 
@@ -22,6 +29,10 @@ var
 
 procedure SafeWriteln(const AText: string);
 begin
+  // sem console não há Output associado — Writeln levantaria EInOutError (105)
+  if not IsConsole then
+    Exit;
+
   GConsoleLock.Enter;
   try
     Writeln(AText);
@@ -32,6 +43,10 @@ end;
 
 procedure SafeWriteln(const AFormatStr: string; const AArgs: array of const);
 begin
+  // checa antes do Format: sem console a formatação também é trabalho jogado fora
+  if not IsConsole then
+    Exit;
+
   SafeWriteln(Format(AFormatStr, AArgs));
 end;
 

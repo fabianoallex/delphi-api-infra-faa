@@ -781,6 +781,8 @@ LFactory := TFDFactory.Create(LConfig, nil);
 
 `Common.SafeLog.SafeWriteln` — `Writeln` thread-safe pro console (`TCriticalSection` global). Use em qualquer ponto que pode rodar fora da main thread (handler HTTP, `OnRequest` de pipe-server, thread de pool) — `Writeln` direto corrompe o buffer do CRT sob concorrência.
 
+Num binário sem `{$APPTYPE CONSOLE}` (serviço Windows, app VCL/FMX) `SafeWriteln` é **no-op** por design — sem console, `Writeln(Output)` levantaria `EInOutError` (105), e o mesmo código de startup precisa servir aos dois binários. Consequência ao portar para serviço: **diagnóstico que só existia via `SafeWriteln` some sem aviso** — inclusive o fallback textual de `TDBMigrationEngine.Execute` sem `AOnEvent` e o aviso de falha de escrita do próprio `Common.FileLog`. Passe os callbacks (`AOnEvent`, `TErrorHandlerMiddleware.Register(AOnError)`) apontando para `FileLog`, e use `TService.LogMessage` (Event Viewer) para falhas de inicialização do serviço.
+
 `Common.FileLog.FileLog(ACategory, AText)` — log assíncrono em arquivo, por categoria, pra código fora do ciclo de requisição do Horse (startup, jobs, handlers de pipe/mensageria). Só enfileira (nunca bloqueia esperando disco); thread dedicada drena e grava em lote. Rotaciona por tamanho: arquivo cheio vira `<categoria>_yyyymmddhhnnss.log`, um novo começa vazio. Toda linha é prefixada com `[<hash> <data hora>]`.
 
 ```pascal

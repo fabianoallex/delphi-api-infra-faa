@@ -1412,6 +1412,26 @@ SafeWriteln('Requisição %s %s -> %d', [Req.Method, Req.PathInfo, Res.Status]);
 
 Já é usado internamente por `TLoggerMiddleware` (branch sem callback customizado) e por `TFDFactory.TestConnection` — qualquer ponto do código que precise escrever no console fora de um contexto garantidamente single-thread deve usar `SafeWriteln` em vez de `Writeln`.
 
+#### Binário sem console (serviço Windows, app VCL/FMX)
+
+Num executável compilado **sem** `{$APPTYPE CONSOLE}` não existe handle de saída padrão, e `Writeln(Output)` levanta `EInOutError` (I/O error 105) já na primeira chamada. Como um mesmo projeto costuma ter os dois binários — um console para desenvolvimento e um serviço Windows para produção, compartilhando o mesmo código de startup —, `SafeWriteln` checa `IsConsole` e vira um **no-op** quando não há console, em vez de derrubar o processo:
+
+```pascal
+procedure SafeWriteln(const AText: string);
+begin
+  if not IsConsole then
+    Exit;
+  ...
+end;
+```
+
+Consequência a ter em mente ao portar uma API para serviço: **todo diagnóstico que só existia via `SafeWriteln` desaparece silenciosamente nesse binário.** Dois pontos da própria lib caem nessa categoria:
+
+- `TDBMigrationEngine.Execute` sem callback `AOnEvent` — o fallback textual das migrations não sai em lugar nenhum
+- o aviso de falha de escrita do `Common.FileLog` (disco cheio, permissão) — que é justamente o cenário em que o log em arquivo não está disponível para contar a história
+
+Nos dois casos a correção é a mesma: passar o callback (`AOnEvent` / `TErrorHandlerMiddleware.Register(AOnError)`) apontando para `FileLog`, como no padrão de `exception.log` mais abaixo. Para falhas de inicialização de um serviço, vale ainda escrever no Event Viewer via `TService.LogMessage` — é o único canal que sobrevive a um `LOG_DIR` mal configurado.
+
 ### Arquivo, assíncrono e por categoria (`Common.FileLog`)
 
 Para logs que não passam pelo ciclo de requisição do Horse (startup, jobs, handlers de pipe, mensageria) e precisam ficar em arquivo. `FileLog` só enfileira a linha — nunca bloqueia a thread chamadora esperando I/O de disco — e uma thread dedicada drena a fila em lote no intervalo configurado.
