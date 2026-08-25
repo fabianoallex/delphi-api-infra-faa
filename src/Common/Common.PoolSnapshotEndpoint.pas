@@ -131,10 +131,15 @@ class procedure TPoolSnapshotEndpoint.Register(const APools: array of TNamedPool
   const APath: string);
 var
   LNamedPools: TArray<TNamedPool>;
+  I: Integer;
 begin
   // captura por valor, fora da closure — Register pode ser chamado com um
-  // array literal cujo storage não sobrevive além desta chamada
-  LNamedPools := APools;
+  // array literal cujo storage não sobrevive além desta chamada; array of T
+  // (parâmetro open array) não é assignment-compatible com TArray<T>, por
+  // isso a cópia é feita elemento a elemento, não por atribuição direta
+  SetLength(LNamedPools, Length(APools));
+  for I := 0 to High(APools) do
+    LNamedPools[I] := APools[I];
 
   THorse.Get(APath,
     procedure(Req: THorseRequest; Res: THorseResponse; Next: TNextProc)
