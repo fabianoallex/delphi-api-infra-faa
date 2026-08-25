@@ -247,7 +247,13 @@ type
   private
     FInternalResult: IQueryResult;
     FConnection: IDBConnection;
-    procedure Guard(E: Exception);
+    // Devolve a exceção a relançar (nova EDatabaseUnavailableException) ou
+    // nil (relançar E como está) — nunca relança ela mesma. Ver comentário
+    // em BuildDatabaseException (Db.Interfaces): "raise E;" por referência,
+    // a partir do frame de Guard (que não é onde E foi capturado), causa AV
+    // nesta versão do Delphi — por isso cada método abaixo relança
+    // localmente, lexicamente dentro do próprio except.
+    function Guard(E: Exception): Exception;
   public
     constructor Create(AResult: IQueryResult; AConnection: IDBConnection);
     function GetAsBoolean(const AName: string): Boolean;
@@ -291,13 +297,22 @@ begin
 end;
 
 procedure TQueryWrapper.ExecSql;
+var
+  LNewE: Exception;
 begin
   try
     FInternalQuery.ExecSql;
   except
     on E: Exception do
     begin
-      MarkConnectionBrokenIfNeeded(FInternalQuery.GetConnection, E);
+      // Ver BuildDatabaseException (Db.Interfaces) — nunca "raise E;" aqui:
+      // relançar por referência um objeto capturado no frame de OUTRA
+      // procedure causa Access Violation nesta versão do Delphi. Só é seguro
+      // relançar uma exceção NOVA (LNewE) ou "raise;" bare, lexicamente
+      // dentro deste próprio except.
+      LNewE := BuildDatabaseException(FInternalQuery.GetConnection, E);
+      if Assigned(LNewE) then
+        raise LNewE;
       raise;
     end;
   end;
@@ -326,17 +341,21 @@ end;
 function TQueryWrapper.Open: IQueryResult;
 var
   LRawResult: IQueryResult;
+  LNewE: Exception;
 begin
   try
     LRawResult := FInternalQuery.Open;
   except
     on E: Exception do
     begin
-      // Ver IsConnectionBrokenError (Db.Interfaces): só marca a conexão para
-      // descarte em EExternal (ex.: Access Violation dentro da chamada
-      // nativa) ou se IsConnected virou False — violação de constraint e
-      // outros erros de dados normais deixam a conexão intocada.
-      MarkConnectionBrokenIfNeeded(FInternalQuery.GetConnection, E);
+      // Ver BuildDatabaseException (Db.Interfaces): só relança como
+      // EDatabaseUnavailableException em EExternal (ex.: Access Violation
+      // dentro da chamada nativa) ou se IsConnected virou False — violação
+      // de constraint e outros erros de dados normais relançam E como está.
+      // Nunca "raise E;" aqui (ver comentário em TQueryWrapper.ExecSql).
+      LNewE := BuildDatabaseException(FInternalQuery.GetConnection, E);
+      if Assigned(LNewE) then
+        raise LNewE;
       raise;
     end;
   end;
@@ -360,170 +379,296 @@ begin
   FConnection := AConnection;
 end;
 
-procedure TQueryResultWrapper.Guard(E: Exception);
+function TQueryResultWrapper.Guard(E: Exception): Exception;
 begin
-  MarkConnectionBrokenIfNeeded(FConnection, E);
+  Result := BuildDatabaseException(FConnection, E);
 end;
 
 function TQueryResultWrapper.GetAsBoolean(const AName: string): Boolean;
+var
+  LNewE: Exception;
 begin
   try
     Result := FInternalResult.GetAsBoolean(AName);
   except
-    on E: Exception do begin Guard(E); raise; end;
+    on E: Exception do
+    begin
+      LNewE := Guard(E);
+      if Assigned(LNewE) then raise LNewE;
+      raise;
+    end;
   end;
 end;
 
 function TQueryResultWrapper.GetAsDateTime(const AName: string): TDateTime;
+var
+  LNewE: Exception;
 begin
   try
     Result := FInternalResult.GetAsDateTime(AName);
   except
-    on E: Exception do begin Guard(E); raise; end;
+    on E: Exception do
+    begin
+      LNewE := Guard(E);
+      if Assigned(LNewE) then raise LNewE;
+      raise;
+    end;
   end;
 end;
 
 function TQueryResultWrapper.GetAsInteger(const AName: string): Integer;
+var
+  LNewE: Exception;
 begin
   try
     Result := FInternalResult.GetAsInteger(AName);
   except
-    on E: Exception do begin Guard(E); raise; end;
+    on E: Exception do
+    begin
+      LNewE := Guard(E);
+      if Assigned(LNewE) then raise LNewE;
+      raise;
+    end;
   end;
 end;
 
 function TQueryResultWrapper.GetAsInt64(const AName: string): Int64;
+var
+  LNewE: Exception;
 begin
   try
     Result := FInternalResult.GetAsInt64(AName);
   except
-    on E: Exception do begin Guard(E); raise; end;
+    on E: Exception do
+    begin
+      LNewE := Guard(E);
+      if Assigned(LNewE) then raise LNewE;
+      raise;
+    end;
   end;
 end;
 
 function TQueryResultWrapper.GetAsString(const AName: string): string;
+var
+  LNewE: Exception;
 begin
   try
     Result := FInternalResult.GetAsString(AName);
   except
-    on E: Exception do begin Guard(E); raise; end;
+    on E: Exception do
+    begin
+      LNewE := Guard(E);
+      if Assigned(LNewE) then raise LNewE;
+      raise;
+    end;
   end;
 end;
 
 function TQueryResultWrapper.GetAsCurrency(const AName: string): Currency;
+var
+  LNewE: Exception;
 begin
   try
     Result := FInternalResult.GetAsCurrency(AName);
   except
-    on E: Exception do begin Guard(E); raise; end;
+    on E: Exception do
+    begin
+      LNewE := Guard(E);
+      if Assigned(LNewE) then raise LNewE;
+      raise;
+    end;
   end;
 end;
 
 function TQueryResultWrapper.GetNullableBoolean(const AName: string): INullBoolean;
+var
+  LNewE: Exception;
 begin
   try
     Result := FInternalResult.GetNullableBoolean(AName);
   except
-    on E: Exception do begin Guard(E); raise; end;
+    on E: Exception do
+    begin
+      LNewE := Guard(E);
+      if Assigned(LNewE) then raise LNewE;
+      raise;
+    end;
   end;
 end;
 
 function TQueryResultWrapper.GetNullableDateTime(const AName: string): INullDateTime;
+var
+  LNewE: Exception;
 begin
   try
     Result := FInternalResult.GetNullableDateTime(AName);
   except
-    on E: Exception do begin Guard(E); raise; end;
+    on E: Exception do
+    begin
+      LNewE := Guard(E);
+      if Assigned(LNewE) then raise LNewE;
+      raise;
+    end;
   end;
 end;
 
 function TQueryResultWrapper.GetNullableInteger(const AName: string): INullInteger;
+var
+  LNewE: Exception;
 begin
   try
     Result := FInternalResult.GetNullableInteger(AName);
   except
-    on E: Exception do begin Guard(E); raise; end;
+    on E: Exception do
+    begin
+      LNewE := Guard(E);
+      if Assigned(LNewE) then raise LNewE;
+      raise;
+    end;
   end;
 end;
 
 function TQueryResultWrapper.GetNullableInt64(const AName: string): INullInt64;
+var
+  LNewE: Exception;
 begin
   try
     Result := FInternalResult.GetNullableInt64(AName);
   except
-    on E: Exception do begin Guard(E); raise; end;
+    on E: Exception do
+    begin
+      LNewE := Guard(E);
+      if Assigned(LNewE) then raise LNewE;
+      raise;
+    end;
   end;
 end;
 
 function TQueryResultWrapper.GetNullableString(const AName: string): INullString;
+var
+  LNewE: Exception;
 begin
   try
     Result := FInternalResult.GetNullableString(AName);
   except
-    on E: Exception do begin Guard(E); raise; end;
+    on E: Exception do
+    begin
+      LNewE := Guard(E);
+      if Assigned(LNewE) then raise LNewE;
+      raise;
+    end;
   end;
 end;
 
 function TQueryResultWrapper.GetNullableCurrency(const AName: string): INullCurrency;
+var
+  LNewE: Exception;
 begin
   try
     Result := FInternalResult.GetNullableCurrency(AName);
   except
-    on E: Exception do begin Guard(E); raise; end;
+    on E: Exception do
+    begin
+      LNewE := Guard(E);
+      if Assigned(LNewE) then raise LNewE;
+      raise;
+    end;
   end;
 end;
 
 function TQueryResultWrapper.IsEmpty: Boolean;
+var
+  LNewE: Exception;
 begin
   try
     Result := FInternalResult.IsEmpty;
   except
-    on E: Exception do begin Guard(E); raise; end;
+    on E: Exception do
+    begin
+      LNewE := Guard(E);
+      if Assigned(LNewE) then raise LNewE;
+      raise;
+    end;
   end;
 end;
 
 function TQueryResultWrapper.FieldCount: Integer;
+var
+  LNewE: Exception;
 begin
   try
     Result := FInternalResult.FieldCount;
   except
-    on E: Exception do begin Guard(E); raise; end;
+    on E: Exception do
+    begin
+      LNewE := Guard(E);
+      if Assigned(LNewE) then raise LNewE;
+      raise;
+    end;
   end;
 end;
 
 function TQueryResultWrapper.FieldValue(AIndex: Integer): Variant;
+var
+  LNewE: Exception;
 begin
   try
     Result := FInternalResult.FieldValue(AIndex);
   except
-    on E: Exception do begin Guard(E); raise; end;
+    on E: Exception do
+    begin
+      LNewE := Guard(E);
+      if Assigned(LNewE) then raise LNewE;
+      raise;
+    end;
   end;
 end;
 
 function TQueryResultWrapper.RecordCount: Integer;
+var
+  LNewE: Exception;
 begin
   try
     Result := FInternalResult.RecordCount;
   except
-    on E: Exception do begin Guard(E); raise; end;
+    on E: Exception do
+    begin
+      LNewE := Guard(E);
+      if Assigned(LNewE) then raise LNewE;
+      raise;
+    end;
   end;
 end;
 
 procedure TQueryResultWrapper.Next;
+var
+  LNewE: Exception;
 begin
   try
     FInternalResult.Next;
   except
-    on E: Exception do begin Guard(E); raise; end;
+    on E: Exception do
+    begin
+      LNewE := Guard(E);
+      if Assigned(LNewE) then raise LNewE;
+      raise;
+    end;
   end;
 end;
 
 function TQueryResultWrapper.Eof: Boolean;
+var
+  LNewE: Exception;
 begin
   try
     Result := FInternalResult.Eof;
   except
-    on E: Exception do begin Guard(E); raise; end;
+    on E: Exception do
+    begin
+      LNewE := Guard(E);
+      if Assigned(LNewE) then raise LNewE;
+      raise;
+    end;
   end;
 end;
 

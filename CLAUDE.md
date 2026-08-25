@@ -565,6 +565,11 @@ TRouteDoc.Patch('/pedidos/:id')
 
 Para `BuildItemsJson`, ver implementação em `Exemplo.Controller` no delphi-api-starter — padrão idêntico.
 `EOrderByException` não precisa ser capturada no handler — o `TErrorHandlerMiddleware` (via `THorse.OnError`) converte automaticamente para 400.
+Da mesma forma, uma queda de conexão com o banco (servidor fora do ar, restart abrupto) nunca
+precisa ser capturada manualmente no Service/Repository — o pool já classifica isso internamente
+(`Db.Interfaces.BuildDatabaseException`) e relança `EDatabaseUnavailableException`, que o
+`TErrorHandlerMiddleware` converte para 503 com mensagem genérica; **não** lance essa classe
+manualmente, ela é exclusiva desse mecanismo interno.
 
 ---
 

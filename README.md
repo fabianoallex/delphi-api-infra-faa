@@ -720,6 +720,7 @@ Lance a classe correta no Service ou Repository — o `OnError` converte automat
 | `ENotFoundException` | 404 | Registro não encontrado pelo ID informado |
 | `EConflictException` | 409 | Violação de unicidade, estado incompatível |
 | `EOrderByException` | 400 | Ordenação por campo não permitido (gerada internamente pelo `TOrderBySpec`) |
+| `EDatabaseUnavailableException` | 503 | Banco de dados indisponível/conexão perdida — gerada internamente pelo pool (`Db.Interfaces.BuildDatabaseException`) ao classificar uma exceção como conexão quebrada (ver "Resiliência" na seção Pool de conexões); **não é** pra ser lançada manualmente no Service/Repository |
 | `EHttpException` | custom | Qualquer outro status — `EHttpException.Create(status, msg)` |
 | `Exception` | 500 | Qualquer exceção não mapeada |
 
@@ -752,7 +753,7 @@ A mensagem é obtida de `E.Message` da exceção capturada — use mensagens ori
 
 ### Log de exceções (`AOnError`)
 
-`TErrorHandlerMiddleware.Register` aceita um parâmetro opcional, `AOnError: TLogProc` (mesmo tipo usado por `TLoggerMiddleware`) — é chamado **só** para o branch 500 (`Exception` genérica não mapeada). `EValidationException`/`ENotFoundException`/`EConflictException`/`EOrderByException` **não** disparam o callback: são fluxo de negócio esperado (400/404/409), não algo a monitorar.
+`TErrorHandlerMiddleware.Register` aceita um parâmetro opcional, `AOnError: TLogProc` (mesmo tipo usado por `TLoggerMiddleware`) — é chamado para o branch 500 (`Exception` genérica não mapeada) **e** para `EDatabaseUnavailableException` (503). `EValidationException`/`ENotFoundException`/`EConflictException`/`EOrderByException` **não** disparam o callback: são fluxo de negócio esperado (400/404/409), não algo a monitorar — já `EDatabaseUnavailableException` é infraestrutura quebrando (banco fora do ar), então vale monitorar apesar de não ser um 500; o log recebe classe e mensagem da exceção nativa original (`OriginalClassName`/`OriginalMessage`, endereço de AV incluso quando for o caso), nunca só a mensagem genérica que vai pro cliente.
 
 ```pascal
 uses
@@ -1436,6 +1437,22 @@ requisição, `TConnectionWrapper.Destroy` a descarta (`DiscardConnection`, even
 usada e falhou; **não** substitui o `Ping` de 120s para conexões que ficaram ociosas o tempo todo
 e nunca chegaram a ser usadas depois do restart (aquela janela continua existindo, mitigada por
 `PoolIdleTimeoutSeconds` mais agressivo, como já descrito).
+
+Além de marcar a conexão, `BuildDatabaseException` (Db.Interfaces) devolve a exceção que deve
+subir pro chamador em vez da original: em vez da `EAccessViolation`/exceção nativa crua — que
+chegava ao cliente HTTP como `{"error":"Access violation at address ... Read of address ..."}`,
+sem contexto nenhum pra quem recebe — devolve uma `EDatabaseUnavailableException` nova, mapeada
+pelo `TErrorHandlerMiddleware` (fora desta lib) pra **503** com mensagem genérica ("banco de
+dados indisponível, tente novamente"). Cada ponto de chamada relança essa exceção **localmente**
+(`if Assigned(LNewE) then raise LNewE; raise;`, sempre dentro do próprio `except` de quem
+capturou) — nunca `raise E;` a partir de outro frame: relançar por referência um objeto capturado
+no frame de *outra* procedure estoura Access Violation nesta versão do Delphi (só é seguro
+relançar uma exceção nova, de qualquer frame, ou fazer `raise;`/`raise E;` bare, lexicamente onde
+a exceção foi capturada). O detalhe técnico original (classe + mensagem da exceção nativa,
+endereço de AV incluso) fica em `OriginalClassName`/`OriginalMessage` — só pro log (`AOnError`),
+nunca pro cliente. A AV em si
+continua acontecendo (não tem como evitar a CPU faltando dentro da chamada nativa), mas quem
+consome a API nunca mais vê isso cru — ver "Hierarquia de exceções" na seção Middleware de erros.
 
 **2. Serviço sobe antes do banco estar disponível** (boot do SO, banco ainda montando). Não há
 retry embutido no pool: `TConnectionPool.Create` chama `CreateInitialConnections`, que tenta

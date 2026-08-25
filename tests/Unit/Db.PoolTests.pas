@@ -254,6 +254,7 @@ type
     [Test] procedure Test_Pool_ConexaoDescartada_IsConnectedFalseAposExcecao;
     [Test] procedure Test_Pool_ConexaoMantida_ExcecaoDeNegocio;
     [Test] procedure Test_Pool_ConexaoDescartada_ExcecaoDuranteLeituraDeCampo;
+    [Test] procedure Test_EDatabaseUnavailableException_PreservaDetalheOriginal;
   private
     procedure MaxConnectionsEstoura_Method;
     // DUnitX.Assert.WillRaise espera um método de instância (TTestLocalMethod
@@ -1651,7 +1652,9 @@ begin
   // Reproduz o cenário real: Query.Open estoura EAccessViolation (driver
   // nativo encontrando o servidor derrubado no meio da chamada) — a conexão
   // precisa ser descartada mesmo que IsConnected ainda reporte True (estado
-  // em memória, não é round-trip real).
+  // em memória, não é round-trip real). BuildDatabaseException troca a AV
+  // pela EDatabaseUnavailableException antes de relançar — é essa que deve
+  // chegar ao chamador, nunca a AV crua (ver Db.Interfaces).
   LConfig := TConnectionPoolConfig.Create;
   LConfig.IniConnections := 1;
   LConfig.MaxConnections := 10;
@@ -1676,8 +1679,8 @@ begin
 
     AssertRaises(
       procedure begin LQuery.Open; end,
-      EAccessViolation,
-      'Open deve propagar a EAccessViolation simulada'
+      EDatabaseUnavailableException,
+      'Open deve propagar EDatabaseUnavailableException, não a EAccessViolation crua'
     );
 
     LQuery := nil;
@@ -1732,8 +1735,8 @@ begin
 
     AssertRaises(
       procedure begin LQuery.Open; end,
-      Exception,
-      'Open deve propagar a exceção simulada'
+      EDatabaseUnavailableException,
+      'Open deve propagar EDatabaseUnavailableException, não a exceção crua do driver'
     );
 
     LQuery := nil;
@@ -1785,11 +1788,21 @@ begin
     // LastCreatedConnection.Connected permanece True (default) — a conexão
     // continua saudável, só a operação falhou.
 
-    AssertRaises(
-      procedure begin LQuery.Open; end,
-      Exception,
-      'Open deve propagar a exceção simulada'
-    );
+    // try/except direto (não AssertRaises) — precisa confirmar que a
+    // exceção propagada NÃO é EDatabaseUnavailableException; "Exception"
+    // como classe esperada em AssertRaises deixaria passar até uma
+    // reclassificação errada, já que EDatabaseUnavailableException também
+    // "is Exception".
+    try
+      LQuery.Open;
+      Assert.Fail('Open deveria ter propagado a exceção simulada');
+    except
+      on E: EDatabaseUnavailableException do
+        Assert.Fail('Erro de dados normal não pode virar EDatabaseUnavailableException — ' +
+          'a conexão está saudável, só a operação falhou');
+      on E: Exception do
+        ; // esperado: a exceção original, sem reclassificação
+    end;
 
     LQuery := nil;
     LScope := nil;
@@ -1849,15 +1862,16 @@ begin
     // try/except direto em vez de AssertRaises — evita depender de como o
     // closure da anônima interage com o refcount de LResult (ver diagnóstico
     // de GetActiveConnections abaixo, que separa "vazou referência" de
-    // "descartou mas o evento não disparou").
+    // "descartou mas o evento não disparou"). Espera EDatabaseUnavailableException
+    // (BuildDatabaseException troca a AV crua por ela antes de relançar).
     LRaised := False;
     try
       LResult.GetAsString('QUALQUER_CAMPO');
     except
-      on E: EAccessViolation do
+      on E: EDatabaseUnavailableException do
         LRaised := True;
     end;
-    Assert.IsTrue(LRaised, 'A leitura do campo deve propagar a EAccessViolation simulada');
+    Assert.IsTrue(LRaised, 'A leitura do campo deve propagar EDatabaseUnavailableException, não a AV crua');
 
     LResult := nil;
     LQuery := nil;
@@ -1872,6 +1886,32 @@ begin
     Assert.AreEqual<TPoolDiscardReason>(pdrBrokenAfterUse, LEvents[0].DiscardReason);
   finally
     LEvents.Free;
+  end;
+end;
+
+procedure TPoolTests.Test_EDatabaseUnavailableException_PreservaDetalheOriginal;
+var
+  LOriginal: Exception;
+  LWrapped: EDatabaseUnavailableException;
+begin
+  LOriginal := EAccessViolation.Create(
+    'Access violation at address 00D5D0F6 in module ''RetaWebLocalSvc.exe''. Read of address 005B005D');
+  try
+    LWrapped := EDatabaseUnavailableException.Create(LOriginal);
+    try
+      Assert.AreEqual('EAccessViolation', LWrapped.OriginalClassName,
+        'OriginalClassName deve preservar a classe da exceção nativa');
+      Assert.AreEqual(LOriginal.Message, LWrapped.OriginalMessage,
+        'OriginalMessage deve preservar o texto original (endereço da AV incluso)');
+      Assert.AreEqual(0, Pos('Access violation', LWrapped.Message),
+        'Message pública não deve vazar o texto técnico da AV pro cliente');
+      Assert.IsTrue(Length(LWrapped.Message) > 0,
+        'Message pública deve ser genérica e não vazia');
+    finally
+      LWrapped.Free;
+    end;
+  finally
+    LOriginal.Free;
   end;
 end;
 

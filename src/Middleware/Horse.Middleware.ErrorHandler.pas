@@ -48,9 +48,14 @@ type
   /// "feat: implement native global error handler (OnError)".
   ///
   /// Mapeamento:
-  ///   EHttpException     → E.StatusCode
-  ///   EOrderByException  → 400
-  ///   Exception          → 500
+  ///   EHttpException              → E.StatusCode
+  ///   EOrderByException           → 400
+  ///   EDatabaseUnavailableException → 503 (Db.Interfaces — conexão perdida/AV
+  ///                                  classificada por BuildDatabaseException;
+  ///                                  diferente de EHttpException/EOrderByException,
+  ///                                  ESTE branch chama AOnError — é infra quebrando,
+  ///                                  não fluxo de negócio esperado)
+  ///   Exception                   → 500
   ///
   /// AOnError é opcional e só é chamado para o branch 500 (Exception genérica)
   /// — EHttpException/EOrderByException são fluxo de negócio esperado (400/404/409),
@@ -78,7 +83,8 @@ implementation
 uses
   System.JSON,
   Horse,
-  Common.OrderBy;
+  Common.OrderBy,
+  Db.Interfaces;
 
 { EHttpException }
 
@@ -134,6 +140,20 @@ begin
   begin
     LStatus  := 400;
     LMessage := AException.Message;
+  end
+  else if AException is EDatabaseUnavailableException then
+  begin
+    LStatus  := 503;
+    LMessage := AException.Message; // genérica de propósito — ver EDatabaseUnavailableException
+    // Diferente de EHttpException/EOrderByException (fluxo de negócio
+    // esperado, não loga): isto É infra quebrando — vale monitorar. O
+    // detalhe original (classe + mensagem da exceção nativa, endereço de AV
+    // incluso) vai só pro log, nunca pro cliente.
+    if Assigned(GOnError) then
+      GOnError(Format('%s %s -> %d: %s (%s: %s)',
+        [ARequest.Method, ARequest.PathInfo, LStatus, LMessage,
+         EDatabaseUnavailableException(AException).OriginalClassName,
+         EDatabaseUnavailableException(AException).OriginalMessage]));
   end
   else
   begin

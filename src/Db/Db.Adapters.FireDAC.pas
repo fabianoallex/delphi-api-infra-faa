@@ -353,6 +353,7 @@ end;
 procedure TFDTransactionAdapter.ExecSql(const ASql: string);
 var
   LQuery: TFDQuery;
+  LNewE: Exception;
 begin
   LQuery := TFDQuery.Create(nil);
   try
@@ -366,8 +367,13 @@ begin
       begin
         // Usado para SQL de savepoint (TFDScopeTransactionAdapter) — bypassa
         // TQueryWrapper (Db.Connection.Pool), então precisa da mesma
-        // classificação aqui. Ver IsConnectionBrokenError (Db.Interfaces).
-        MarkConnectionBrokenIfNeeded(FConn, E);
+        // classificação aqui. Ver BuildDatabaseException (Db.Interfaces) —
+        // nunca "raise E;" a partir de outro frame (causa AV nesta versão do
+        // Delphi); só uma exceção NOVA (LNewE) ou "raise;" bare, lexicamente
+        // aqui, são seguros.
+        LNewE := BuildDatabaseException(FConn, E);
+        if Assigned(LNewE) then
+          raise LNewE;
         raise;
       end;
     end;
@@ -382,6 +388,8 @@ begin
 end;
 
 procedure TFDTransactionAdapter.StartTransaction;
+var
+  LNewE: Exception;
 begin
   if not FInTransaction then
   begin
@@ -396,8 +404,12 @@ begin
         // documentado no CLAUDE.md para Insert/Update, e usado em qualquer
         // Find que também abra transação cedo) — bypassa TQueryWrapper.Open
         // (Db.Connection.Pool) inteiramente, então precisa da mesma
-        // classificação aqui. Ver IsConnectionBrokenError (Db.Interfaces).
-        MarkConnectionBrokenIfNeeded(FConn, E);
+        // classificação aqui. Ver BuildDatabaseException (Db.Interfaces) —
+        // nunca "raise E;" a partir de outro frame (AV nesta versão do
+        // Delphi); só LNewE (nova) ou "raise;" bare, lexicamente aqui.
+        LNewE := BuildDatabaseException(FConn, E);
+        if Assigned(LNewE) then
+          raise LNewE;
         raise;
       end;
     end;
@@ -406,6 +418,8 @@ begin
 end;
 
 procedure TFDTransactionAdapter.Commit;
+var
+  LNewE: Exception;
 begin
   try
     FTransaction.Commit;
@@ -413,8 +427,10 @@ begin
     on E: Exception do
     begin
       // Ponto real de Commit — bypassa TQueryWrapper (Db.Connection.Pool),
-      // então precisa da mesma classificação aqui. Ver IsConnectionBrokenError.
-      MarkConnectionBrokenIfNeeded(FConn, E);
+      // então precisa da mesma classificação aqui. Ver BuildDatabaseException.
+      LNewE := BuildDatabaseException(FConn, E);
+      if Assigned(LNewE) then
+        raise LNewE;
       raise;
     end;
   end;
@@ -422,13 +438,17 @@ begin
 end;
 
 procedure TFDTransactionAdapter.Rollback;
+var
+  LNewE: Exception;
 begin
   try
     FTransaction.Rollback;
   except
     on E: Exception do
     begin
-      MarkConnectionBrokenIfNeeded(FConn, E);
+      LNewE := BuildDatabaseException(FConn, E);
+      if Assigned(LNewE) then
+        raise LNewE;
       raise;
     end;
   end;

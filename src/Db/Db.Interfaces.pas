@@ -44,6 +44,29 @@ type
     function GetRealConnection: IDBConnection;
   end;
 
+  // Levantada (via BuildDatabaseException) em vez da exceção nativa (FireDAC
+  // ou EExternal/AV) sempre que IsConnectionBrokenError classifica a falha
+  // como conexão quebrada. Nunca deveria chegar ao cliente/aos logs como um
+  // "Access violation at address ..." sem contexto nenhum — essa classe dá
+  // um tipo estável e reconhecível pro que é, de fato, sempre a mesma causa
+  // raiz (servidor de banco fora do ar / conexão perdida), independente de
+  // qual chamada nativa especificamente crashou. `Message` é genérica de
+  // propósito (segura de expor ao cliente); o detalhe original (classe +
+  // texto da exceção nativa, endereço de AV incluso) fica só em
+  // OriginalClassName/OriginalMessage, pra quem for logar/investigar — não
+  // existe "inner exception" nativa em Delphi, é assim que se preserva o
+  // contexto sem vazar ruído pro cliente. Fora desta lib,
+  // Horse.Middleware.ErrorHandler mapeia essa classe pra 503.
+  EDatabaseUnavailableException = class(Exception)
+  private
+    FOriginalClassName: string;
+    FOriginalMessage: string;
+  public
+    constructor Create(AOriginalException: Exception);
+    property OriginalClassName: string read FOriginalClassName;
+    property OriginalMessage: string read FOriginalMessage;
+  end;
+
   // Implementada só pelo wrapper que o pool devolve em AcquireConnection
   // (Db.Connection.Pool.TConnectionWrapper) — nunca pelos adapters "reais"
   // (TFDConnectionAdapter etc.), que não sabem nada sobre pool. Ver
@@ -371,20 +394,46 @@ type
 // duplicada), sem necessidade.
 function IsConnectionBrokenError(E: Exception; AConn: IDBConnection): Boolean;
 
-// Ponto único chamado nos locais onde a lib toca o driver nativo:
-// TQueryWrapper.Open/ExecSql e TQueryResultWrapper (leitura de campo do
-// IQueryResult devolvido por Open — cobre o AV que acontece só no meio do
-// fetch, depois do Open já ter retornado com sucesso) em Db.Connection.Pool;
+// Marca AConn para descarte (via IDiscardableConnection) se E indicar
+// conexão quebrada — ver IsConnectionBrokenError. Devolve se marcou ou não;
+// convertido em no-op (devolve False) se AConn não implementar
+// IDiscardableConnection (conexão obtida fora do pool, ou adapter de
+// teste/mock) ou não estiver Assigned.
+function MarkConnectionBrokenIfNeeded(AConn: IDBConnection; E: Exception): Boolean;
+
+// Chamado nos locais onde a lib toca o driver nativo: TQueryWrapper.Open/
+// ExecSql e TQueryResultWrapper (leitura de campo do IQueryResult devolvido
+// por Open — cobre o AV que acontece só no meio do fetch, depois do Open já
+// ter retornado com sucesso) em Db.Connection.Pool;
 // TFDTransactionAdapter.StartTransaction/Commit/Rollback/ExecSql em
 // Db.Adapters.FireDAC — StartTransaction é o primeiro round-trip real ao
 // servidor quando o Repository chama LScope.StartTransaction explicitamente
 // ANTES do try/except (padrão documentado no CLAUDE.md para Insert/Update, e
-// usado também por Find/Get que abrem transação cedo) — como fica fora do
-// try/except do Repository, sem essa classificação aqui a exceção nunca
-// passava por MarkConnectionBrokenIfNeeded em lugar nenhum.
-// Convertido para no-op se AConn não implementar IDiscardableConnection
-// (conexão obtida fora do pool, ou adapter de teste/mock).
-procedure MarkConnectionBrokenIfNeeded(AConn: IDBConnection; E: Exception);
+// usado também por Find/Get que abrem transação cedo).
+//
+// Marca a conexão (MarkConnectionBrokenIfNeeded) e devolve a exceção a
+// relançar: uma EDatabaseUnavailableException NOVA se E foi classificado
+// como conexão quebrada (nunca deixa uma EAccessViolation ou outra exceção
+// de baixo nível do driver vazar pro chamador como está — é o que chegava
+// ao cliente HTTP como "Access violation at address ..." sem contexto
+// nenhum, antes desta função existir), ou nil se não (erro de dados normal,
+// ex. violação de constraint — o chamador deve relançar E como está).
+//
+// Por que devolve em vez de já relançar: "raise E;" (relançar por
+// REFERÊNCIA um objeto capturado no frame de OUTRA procedure) causa Access
+// Violation nesta versão do Delphi — só é seguro relançar uma exceção NOVA
+// (`raise Result;`, sempre seguro de qualquer frame) ou fazer bare "raise;"
+// LEXICAMENTE dentro do próprio except de quem capturou. Por isso todo call
+// site segue o padrão:
+//   except
+//     on E: Exception do
+//     begin
+//       LNewE := BuildDatabaseException(AConn, E);
+//       if Assigned(LNewE) then raise LNewE;
+//       raise;
+//     end;
+//   end;
+function BuildDatabaseException(AConn: IDBConnection; E: Exception): Exception;
 
 implementation
 
@@ -393,14 +442,33 @@ begin
   Result := (E is EExternal) or (Assigned(AConn) and (not AConn.IsConnected));
 end;
 
-procedure MarkConnectionBrokenIfNeeded(AConn: IDBConnection; E: Exception);
+function MarkConnectionBrokenIfNeeded(AConn: IDBConnection; E: Exception): Boolean;
 var
   LDiscardable: IDiscardableConnection;
 begin
-  if not Assigned(AConn) then
-    Exit;
-  if IsConnectionBrokenError(E, AConn) and Supports(AConn, IDiscardableConnection, LDiscardable) then
+  Result := Assigned(AConn) and IsConnectionBrokenError(E, AConn);
+  if Result and Supports(AConn, IDiscardableConnection, LDiscardable) then
     LDiscardable.MarkForDiscard;
+end;
+
+function BuildDatabaseException(AConn: IDBConnection; E: Exception): Exception;
+begin
+  if MarkConnectionBrokenIfNeeded(AConn, E) then
+    Result := EDatabaseUnavailableException.Create(E)
+  else
+    Result := nil;
+end;
+
+{ EDatabaseUnavailableException }
+
+constructor EDatabaseUnavailableException.Create(AOriginalException: Exception);
+begin
+  inherited Create('Banco de dados indisponível ou conexão perdida. Tente novamente em instantes.');
+  if Assigned(AOriginalException) then
+  begin
+    FOriginalClassName := AOriginalException.ClassName;
+    FOriginalMessage := AOriginalException.Message;
+  end;
 end;
 
 end.
