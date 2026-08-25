@@ -1412,8 +1412,12 @@ conexão o bastante para estourar AV — capturado como exceção Delphi normal 
 `TErrorHandlerMiddleware`, então o serviço sobrevive, mas a conexão AV'd ainda voltava pro pool.
 
 Por isso `Db.Connection.Pool`/`Db.Adapters.FireDAC` agora classificam toda exceção que ocorre nos
-pontos onde a lib toca o driver nativo (`Query.Open`/`ExecSql`, `Commit`/`Rollback` de transação —
-ver `IsConnectionBrokenError` em `Db.Interfaces`) como "conexão quebrada" quando é uma
+pontos onde a lib toca o driver nativo — `Query.Open`/`ExecSql`, **a leitura de cada campo do
+`IQueryResult` devolvido por `Open`** (`TQueryResultWrapper` — o `Open` em si pode retornar com
+sucesso e o servidor cair só no meio do fetch, que é onde boa parte do tempo de uma query
+realmente toca o driver; sem esse wrapper especificamente, a classificação cobria só a metade
+menos frequente do ciclo de vida da query) e `Commit`/`Rollback` de transação — ver
+`IsConnectionBrokenError` em `Db.Interfaces`) como "conexão quebrada" quando é uma
 `EExternal` (base de `EAccessViolation`, `EStackOverflow`, `EPrivilege`, ...) **ou** quando
 `IsConnected` virou `False` logo depois. Deliberadamente **não** cobre exceções de dados normais
 (violação de constraint, tipo inválido, ...) com a conexão ainda `IsConnected = True` — aí a

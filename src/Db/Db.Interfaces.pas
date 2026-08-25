@@ -371,10 +371,12 @@ type
 // duplicada), sem necessidade.
 function IsConnectionBrokenError(E: Exception; AConn: IDBConnection): Boolean;
 
-// Ponto único chamado nos locais onde a lib toca o driver nativo
-// (TQueryWrapper.Open/ExecSql em Db.Connection.Pool;
-// TFDTransactionAdapter.Commit/Rollback/ExecSql em Db.Adapters.FireDAC) —
-// convertido para no-op se AConn não implementar IDiscardableConnection
+// Ponto único chamado nos locais onde a lib toca o driver nativo:
+// TQueryWrapper.Open/ExecSql e TQueryResultWrapper (leitura de campo do
+// IQueryResult devolvido por Open — cobre o AV que acontece só no meio do
+// fetch, depois do Open já ter retornado com sucesso) em Db.Connection.Pool;
+// TFDTransactionAdapter.Commit/Rollback/ExecSql em Db.Adapters.FireDAC.
+// Convertido para no-op se AConn não implementar IDiscardableConnection
 // (conexão obtida fora do pool, ou adapter de teste/mock).
 procedure MarkConnectionBrokenIfNeeded(AConn: IDBConnection; E: Exception);
 

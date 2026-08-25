@@ -232,6 +232,44 @@ type
     procedure SetSql(const ASql: string);
   end;
 
+  { TQueryResultWrapper
+    Envolve o IQueryResult devolvido por Query.Open. Todo acesso a campo
+    (GetAsXxx, GetNullableXxx, Next, ...) passa por aqui — é o ponto certo pra
+    aplicar a mesma classificação de MarkConnectionBrokenIfNeeded usada em
+    TQueryWrapper.Open/ExecSql: um AV ou perda de conexão no meio da leitura
+    dos campos (ex.: servidor caiu durante o fetch, depois do Open já ter
+    retornado com sucesso) precisa marcar a conexão pro descarte tanto quanto
+    uma falha no próprio Open — sem isso, TQueryWrapper.Open só cobre a
+    metade do ciclo de vida da query que menos concentra acesso ao driver
+    nativo (a maior parte da leitura de dados acontece aqui, não no Open). }
+
+  TQueryResultWrapper = class(TInterfacedObject, IQueryResult)
+  private
+    FInternalResult: IQueryResult;
+    FConnection: IDBConnection;
+    procedure Guard(E: Exception);
+  public
+    constructor Create(AResult: IQueryResult; AConnection: IDBConnection);
+    function GetAsBoolean(const AName: string): Boolean;
+    function GetAsDateTime(const AName: string): TDateTime;
+    function GetAsInteger(const AName: string): Integer;
+    function GetAsInt64(const AName: string): Int64;
+    function GetAsString(const AName: string): string;
+    function GetAsCurrency(const AName: string): Currency;
+    function GetNullableBoolean(const AName: string): INullBoolean;
+    function GetNullableDateTime(const AName: string): INullDateTime;
+    function GetNullableInteger(const AName: string): INullInteger;
+    function GetNullableInt64(const AName: string): INullInt64;
+    function GetNullableString(const AName: string): INullString;
+    function GetNullableCurrency(const AName: string): INullCurrency;
+    function IsEmpty: Boolean;
+    function FieldCount: Integer;
+    function FieldValue(AIndex: Integer): Variant;
+    function RecordCount: Integer;
+    procedure Next;
+    function Eof: Boolean;
+  end;
+
 { TQueryWrapper }
 
 constructor TQueryWrapper.Create(APool: IDBConnectionPoolInternalActions; ARealQuery: IQuery);
@@ -286,9 +324,11 @@ begin
 end;
 
 function TQueryWrapper.Open: IQueryResult;
+var
+  LRawResult: IQueryResult;
 begin
   try
-    Result := FInternalQuery.Open;
+    LRawResult := FInternalQuery.Open;
   except
     on E: Exception do
     begin
@@ -300,11 +340,191 @@ begin
       raise;
     end;
   end;
+  // O resultado cru não passa por nenhum wrapper do pool — sem isso, um AV
+  // durante a leitura dos campos (ex.: servidor caiu no meio do fetch, já
+  // depois do Open ter retornado com sucesso) nunca seria classificado.
+  // Ver TQueryResultWrapper.
+  Result := TQueryResultWrapper.Create(LRawResult, FInternalQuery.GetConnection);
 end;
 
 procedure TQueryWrapper.SetSql(const ASql: string);
 begin
   FInternalQuery.SetSql(ASql);
+end;
+
+{ TQueryResultWrapper }
+
+constructor TQueryResultWrapper.Create(AResult: IQueryResult; AConnection: IDBConnection);
+begin
+  FInternalResult := AResult;
+  FConnection := AConnection;
+end;
+
+procedure TQueryResultWrapper.Guard(E: Exception);
+begin
+  MarkConnectionBrokenIfNeeded(FConnection, E);
+end;
+
+function TQueryResultWrapper.GetAsBoolean(const AName: string): Boolean;
+begin
+  try
+    Result := FInternalResult.GetAsBoolean(AName);
+  except
+    on E: Exception do begin Guard(E); raise; end;
+  end;
+end;
+
+function TQueryResultWrapper.GetAsDateTime(const AName: string): TDateTime;
+begin
+  try
+    Result := FInternalResult.GetAsDateTime(AName);
+  except
+    on E: Exception do begin Guard(E); raise; end;
+  end;
+end;
+
+function TQueryResultWrapper.GetAsInteger(const AName: string): Integer;
+begin
+  try
+    Result := FInternalResult.GetAsInteger(AName);
+  except
+    on E: Exception do begin Guard(E); raise; end;
+  end;
+end;
+
+function TQueryResultWrapper.GetAsInt64(const AName: string): Int64;
+begin
+  try
+    Result := FInternalResult.GetAsInt64(AName);
+  except
+    on E: Exception do begin Guard(E); raise; end;
+  end;
+end;
+
+function TQueryResultWrapper.GetAsString(const AName: string): string;
+begin
+  try
+    Result := FInternalResult.GetAsString(AName);
+  except
+    on E: Exception do begin Guard(E); raise; end;
+  end;
+end;
+
+function TQueryResultWrapper.GetAsCurrency(const AName: string): Currency;
+begin
+  try
+    Result := FInternalResult.GetAsCurrency(AName);
+  except
+    on E: Exception do begin Guard(E); raise; end;
+  end;
+end;
+
+function TQueryResultWrapper.GetNullableBoolean(const AName: string): INullBoolean;
+begin
+  try
+    Result := FInternalResult.GetNullableBoolean(AName);
+  except
+    on E: Exception do begin Guard(E); raise; end;
+  end;
+end;
+
+function TQueryResultWrapper.GetNullableDateTime(const AName: string): INullDateTime;
+begin
+  try
+    Result := FInternalResult.GetNullableDateTime(AName);
+  except
+    on E: Exception do begin Guard(E); raise; end;
+  end;
+end;
+
+function TQueryResultWrapper.GetNullableInteger(const AName: string): INullInteger;
+begin
+  try
+    Result := FInternalResult.GetNullableInteger(AName);
+  except
+    on E: Exception do begin Guard(E); raise; end;
+  end;
+end;
+
+function TQueryResultWrapper.GetNullableInt64(const AName: string): INullInt64;
+begin
+  try
+    Result := FInternalResult.GetNullableInt64(AName);
+  except
+    on E: Exception do begin Guard(E); raise; end;
+  end;
+end;
+
+function TQueryResultWrapper.GetNullableString(const AName: string): INullString;
+begin
+  try
+    Result := FInternalResult.GetNullableString(AName);
+  except
+    on E: Exception do begin Guard(E); raise; end;
+  end;
+end;
+
+function TQueryResultWrapper.GetNullableCurrency(const AName: string): INullCurrency;
+begin
+  try
+    Result := FInternalResult.GetNullableCurrency(AName);
+  except
+    on E: Exception do begin Guard(E); raise; end;
+  end;
+end;
+
+function TQueryResultWrapper.IsEmpty: Boolean;
+begin
+  try
+    Result := FInternalResult.IsEmpty;
+  except
+    on E: Exception do begin Guard(E); raise; end;
+  end;
+end;
+
+function TQueryResultWrapper.FieldCount: Integer;
+begin
+  try
+    Result := FInternalResult.FieldCount;
+  except
+    on E: Exception do begin Guard(E); raise; end;
+  end;
+end;
+
+function TQueryResultWrapper.FieldValue(AIndex: Integer): Variant;
+begin
+  try
+    Result := FInternalResult.FieldValue(AIndex);
+  except
+    on E: Exception do begin Guard(E); raise; end;
+  end;
+end;
+
+function TQueryResultWrapper.RecordCount: Integer;
+begin
+  try
+    Result := FInternalResult.RecordCount;
+  except
+    on E: Exception do begin Guard(E); raise; end;
+  end;
+end;
+
+procedure TQueryResultWrapper.Next;
+begin
+  try
+    FInternalResult.Next;
+  except
+    on E: Exception do begin Guard(E); raise; end;
+  end;
+end;
+
+function TQueryResultWrapper.Eof: Boolean;
+begin
+  try
+    Result := FInternalResult.Eof;
+  except
+    on E: Exception do begin Guard(E); raise; end;
+  end;
 end;
 
 { TConnectionWrapper }

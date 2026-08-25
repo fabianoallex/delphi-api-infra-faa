@@ -12,7 +12,9 @@ uses
   Db.Interfaces,
   Db.Connection.Pool,
   Db.SqlLoader,
-  Common.SystemContext;
+  Common.SystemContext,
+  Common.Optionals,
+  System.Variants;
 
 type
 
@@ -106,6 +108,40 @@ type
     procedure StartTransaction;
   end;
 
+  { TFakeQueryResult
+    Mock de IQueryResult cujos métodos podem ser configurados pra lançar uma
+    exceção — usado pra reproduzir o cenário real (Access Violation durante a
+    leitura de campo, depois do Open já ter retornado com sucesso) que
+    TQueryWrapper.Open sozinho não cobria — ver TQueryResultWrapper
+    (Db.Connection.Pool). }
+
+  TFakeQueryResult = class(TInterfacedObject, IQueryResult)
+  private
+    FExceptionClass: ExceptClass;
+    FExceptionMsg: string;
+    procedure MaybeRaise;
+  public
+    procedure SetRaiseOnAnyCall(AExceptionClass: ExceptClass; const AMsg: string);
+    function GetAsBoolean(const AName: string): Boolean;
+    function GetAsDateTime(const AName: string): TDateTime;
+    function GetAsInteger(const AName: string): Integer;
+    function GetAsInt64(const AName: string): Int64;
+    function GetAsString(const AName: string): string;
+    function GetAsCurrency(const AName: string): Currency;
+    function GetNullableBoolean(const AName: string): INullBoolean;
+    function GetNullableDateTime(const AName: string): INullDateTime;
+    function GetNullableInteger(const AName: string): INullInteger;
+    function GetNullableInt64(const AName: string): INullInt64;
+    function GetNullableString(const AName: string): INullString;
+    function GetNullableCurrency(const AName: string): INullCurrency;
+    function IsEmpty: Boolean;
+    function FieldCount: Integer;
+    function FieldValue(AIndex: Integer): Variant;
+    function RecordCount: Integer;
+    procedure Next;
+    function Eof: Boolean;
+  end;
+
   { TFakeQuery }
 
   TFakeQuery = class(TInterfacedObject, IQuery)
@@ -115,6 +151,7 @@ type
     FConnection: IDBConnection;
     FOpenExceptionClass: ExceptClass;
     FOpenExceptionMsg: string;
+    FOpenResult: IQueryResult;
   public
     constructor Create(AConn: IDBConnection; ATrans: ITransaction);
     procedure Close;
@@ -128,6 +165,9 @@ type
     // Testes de Test_Pool_ConexaoDescartada_* / Test_Pool_ConexaoMantida_* —
     // faz o próximo Open lançar AExceptionClass em vez de devolver nil.
     procedure SetRaiseOnOpen(AExceptionClass: ExceptClass; const AMsg: string);
+    // Test_Pool_ConexaoDescartada_ExcecaoDuranteLeituraDeCampo — Open passa a
+    // devolver AResult (em vez de nil) quando não há SetRaiseOnOpen configurado.
+    procedure SetOpenResult(AResult: IQueryResult);
   end;
 
   { TDBFactoryMock }
@@ -139,6 +179,7 @@ type
     FLastCreatedConnection: TFakeDBConnection;
     FNextQueryOpenExceptionClass: ExceptClass;
     FNextQueryOpenExceptionMsg: string;
+    FNextQueryOpenResult: IQueryResult;
   public
     constructor Create;
     destructor Destroy; override;
@@ -153,6 +194,9 @@ type
     // Consumido uma vez pela próxima CreateQuery — usado pelos testes de
     // descarte por conexão quebrada (ver TFakeQuery.SetRaiseOnOpen).
     procedure RaiseOnNextQueryOpen(AExceptionClass: ExceptClass; const AMsg: string = 'fake error');
+    // Consumido uma vez pela próxima CreateQuery — Open dessa query devolve
+    // AResult (com sucesso) em vez de nil (ver TFakeQuery.SetOpenResult).
+    procedure SetNextQueryOpenResult(AResult: IQueryResult);
     property SimulateTestConnectionFail: Boolean
       read FSimulateTestConnectionFail write FSimulateTestConnectionFail;
     property TestedConnections: TList<IDBConnection> read FTestedConnections;
@@ -209,8 +253,14 @@ type
     [Test] procedure Test_Pool_ConexaoDescartada_ExcecaoExternal;
     [Test] procedure Test_Pool_ConexaoDescartada_IsConnectedFalseAposExcecao;
     [Test] procedure Test_Pool_ConexaoMantida_ExcecaoDeNegocio;
+    [Test] procedure Test_Pool_ConexaoDescartada_ExcecaoDuranteLeituraDeCampo;
   private
     procedure MaxConnectionsEstoura_Method;
+    // DUnitX.Assert.WillRaise espera um método de instância (TTestLocalMethod
+    // = procedure of object), não uma anônima — por isso os testes de
+    // descarte de conexão (que precisam capturar variáveis locais) usam este
+    // helper com try/except direto em vez de Assert.WillRaise.
+    procedure AssertRaises(AProc: TProc; AExceptionClass: ExceptClass; const AMsg: string);
   end;
 
 implementation
@@ -286,6 +336,127 @@ begin
 end;
 
 procedure TFakeDBConnection.Rollback; begin end;
+
+{ TFakeQueryResult }
+
+procedure TFakeQueryResult.SetRaiseOnAnyCall(AExceptionClass: ExceptClass; const AMsg: string);
+begin
+  FExceptionClass := AExceptionClass;
+  FExceptionMsg := AMsg;
+end;
+
+procedure TFakeQueryResult.MaybeRaise;
+begin
+  if Assigned(FExceptionClass) then
+    raise FExceptionClass.Create(FExceptionMsg);
+end;
+
+function TFakeQueryResult.GetAsBoolean(const AName: string): Boolean;
+begin
+  MaybeRaise;
+  Result := False;
+end;
+
+function TFakeQueryResult.GetAsDateTime(const AName: string): TDateTime;
+begin
+  MaybeRaise;
+  Result := 0;
+end;
+
+function TFakeQueryResult.GetAsInteger(const AName: string): Integer;
+begin
+  MaybeRaise;
+  Result := 0;
+end;
+
+function TFakeQueryResult.GetAsInt64(const AName: string): Int64;
+begin
+  MaybeRaise;
+  Result := 0;
+end;
+
+function TFakeQueryResult.GetAsString(const AName: string): string;
+begin
+  MaybeRaise;
+  Result := '';
+end;
+
+function TFakeQueryResult.GetAsCurrency(const AName: string): Currency;
+begin
+  MaybeRaise;
+  Result := 0;
+end;
+
+function TFakeQueryResult.GetNullableBoolean(const AName: string): INullBoolean;
+begin
+  MaybeRaise;
+  Result := nil;
+end;
+
+function TFakeQueryResult.GetNullableDateTime(const AName: string): INullDateTime;
+begin
+  MaybeRaise;
+  Result := nil;
+end;
+
+function TFakeQueryResult.GetNullableInteger(const AName: string): INullInteger;
+begin
+  MaybeRaise;
+  Result := nil;
+end;
+
+function TFakeQueryResult.GetNullableInt64(const AName: string): INullInt64;
+begin
+  MaybeRaise;
+  Result := nil;
+end;
+
+function TFakeQueryResult.GetNullableString(const AName: string): INullString;
+begin
+  MaybeRaise;
+  Result := nil;
+end;
+
+function TFakeQueryResult.GetNullableCurrency(const AName: string): INullCurrency;
+begin
+  MaybeRaise;
+  Result := nil;
+end;
+
+function TFakeQueryResult.IsEmpty: Boolean;
+begin
+  MaybeRaise;
+  Result := True;
+end;
+
+function TFakeQueryResult.FieldCount: Integer;
+begin
+  MaybeRaise;
+  Result := 0;
+end;
+
+function TFakeQueryResult.FieldValue(AIndex: Integer): Variant;
+begin
+  MaybeRaise;
+  Result := Null;
+end;
+
+function TFakeQueryResult.RecordCount: Integer;
+begin
+  MaybeRaise;
+  Result := 0;
+end;
+
+procedure TFakeQueryResult.Next;
+begin
+  MaybeRaise;
+end;
+
+function TFakeQueryResult.Eof: Boolean;
+begin
+  MaybeRaise;
+  Result := True;
+end;
 
 { TFakeTransaction }
 
@@ -417,7 +588,7 @@ function TFakeQuery.Open: IQueryResult;
 begin
   if Assigned(FOpenExceptionClass) then
     raise FOpenExceptionClass.Create(FOpenExceptionMsg);
-  Result := nil;
+  Result := FOpenResult;
 end;
 
 procedure TFakeQuery.SetSql(const ASql: string);
@@ -429,6 +600,11 @@ procedure TFakeQuery.SetRaiseOnOpen(AExceptionClass: ExceptClass; const AMsg: st
 begin
   FOpenExceptionClass := AExceptionClass;
   FOpenExceptionMsg := AMsg;
+end;
+
+procedure TFakeQuery.SetOpenResult(AResult: IQueryResult);
+begin
+  FOpenResult := AResult;
 end;
 
 { TDBFactoryMock }
@@ -462,6 +638,11 @@ begin
     LQuery.SetRaiseOnOpen(FNextQueryOpenExceptionClass, FNextQueryOpenExceptionMsg);
     FNextQueryOpenExceptionClass := nil;
   end;
+  if Assigned(FNextQueryOpenResult) then
+  begin
+    LQuery.SetOpenResult(FNextQueryOpenResult);
+    FNextQueryOpenResult := nil;
+  end;
   Result := LQuery;
 end;
 
@@ -469,6 +650,11 @@ procedure TDBFactoryMock.RaiseOnNextQueryOpen(AExceptionClass: ExceptClass; cons
 begin
   FNextQueryOpenExceptionClass := AExceptionClass;
   FNextQueryOpenExceptionMsg := AMsg;
+end;
+
+procedure TDBFactoryMock.SetNextQueryOpenResult(AResult: IQueryResult);
+begin
+  FNextQueryOpenResult := AResult;
 end;
 
 function TDBFactoryMock.CreateScopeTransaction(
@@ -505,6 +691,20 @@ begin
 end;
 
 { TPoolTests }
+
+procedure TPoolTests.AssertRaises(AProc: TProc; AExceptionClass: ExceptClass; const AMsg: string);
+var
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    AProc();
+  except
+    on E: Exception do
+      LRaised := E is AExceptionClass;
+  end;
+  Assert.IsTrue(LRaised, AMsg);
+end;
 
 procedure TPoolTests.MaxConnectionsEstoura_Method;
 var
@@ -1474,7 +1674,7 @@ begin
     LScope := LPool.AcquireQuery(LQuery);
     Assert.AreEqual(0, LPool.GetPoolSize, 'A conexão saiu do pool para a query');
 
-    Assert.WillRaise(
+    AssertRaises(
       procedure begin LQuery.Open; end,
       EAccessViolation,
       'Open deve propagar a EAccessViolation simulada'
@@ -1530,7 +1730,7 @@ begin
     // Simula o driver detectando a queda no momento da falha
     LMockFactory.LastCreatedConnection.Connected := False;
 
-    Assert.WillRaise(
+    AssertRaises(
       procedure begin LQuery.Open; end,
       Exception,
       'Open deve propagar a exceção simulada'
@@ -1585,7 +1785,7 @@ begin
     // LastCreatedConnection.Connected permanece True (default) — a conexão
     // continua saudável, só a operação falhou.
 
-    Assert.WillRaise(
+    AssertRaises(
       procedure begin LQuery.Open; end,
       Exception,
       'Open deve propagar a exceção simulada'
@@ -1598,6 +1798,78 @@ begin
       'Exceção de negócio com conexão ainda saudável não deve descartar a conexão');
     Assert.AreEqual(0, LEvents.Count,
       'Nenhum evento pekConnectionDiscarded deve disparar para erro de dados normal');
+  finally
+    LEvents.Free;
+  end;
+end;
+
+procedure TPoolTests.Test_Pool_ConexaoDescartada_ExcecaoDuranteLeituraDeCampo;
+var
+  LConfig: IConnectionPoolConfig;
+  LFactory: IDBFactory;
+  LMockFactory: TDBFactoryMock;
+  LPool: IDBConnectionPool;
+  LQuery: IQuery;
+  LScope: IScopeTransaction;
+  LFakeResult: TFakeQueryResult;
+  LResult: IQueryResult;
+  LEvents: TList<TPoolEvent>;
+  LRaised: Boolean;
+begin
+  // Reproduz o gap real encontrado em produção: Open retorna com sucesso (o
+  // servidor caiu só depois, no meio do fetch dos campos) — a AV acontece
+  // num GetAsXxx/GetNullableXxx chamado pelo Repository ao montar o DTO de
+  // resposta, não dentro do próprio Open. Sem TQueryResultWrapper, esse
+  // ponto não tinha nenhuma classificação.
+  LConfig := TConnectionPoolConfig.Create;
+  LConfig.IniConnections := 1;
+  LConfig.MaxConnections := 10;
+
+  LMockFactory := TDBFactoryMock.Create;
+  LFactory := LMockFactory;
+  LEvents := TList<TPoolEvent>.Create;
+  try
+    LPool := TConnectionPool.Create(LFactory, LConfig,
+      procedure(const AEvent: TPoolEvent)
+      begin
+        LEvents.Add(AEvent);
+      end);
+    LEvents.Clear;
+
+    LFakeResult := TFakeQueryResult.Create;
+    LFakeResult.SetRaiseOnAnyCall(EAccessViolation, 'fake AV no fetch');
+    LMockFactory.SetNextQueryOpenResult(LFakeResult);
+
+    LQuery := nil;
+    LScope := LPool.AcquireQuery(LQuery);
+
+    LResult := LQuery.Open;
+    Assert.IsNotNull(LResult, 'Open deve retornar com sucesso (a falha é só na leitura do campo)');
+
+    // try/except direto em vez de AssertRaises — evita depender de como o
+    // closure da anônima interage com o refcount de LResult (ver diagnóstico
+    // de GetActiveConnections abaixo, que separa "vazou referência" de
+    // "descartou mas o evento não disparou").
+    LRaised := False;
+    try
+      LResult.GetAsString('QUALQUER_CAMPO');
+    except
+      on E: EAccessViolation do
+        LRaised := True;
+    end;
+    Assert.IsTrue(LRaised, 'A leitura do campo deve propagar a EAccessViolation simulada');
+
+    LResult := nil;
+    LQuery := nil;
+    LScope := nil;
+
+    Assert.AreEqual(0, LPool.GetActiveConnections,
+      'Conexão que sofreu EAccessViolation na leitura de campo deve sair de ativa (0), não ficar presa como se ainda estivesse em uso');
+    Assert.AreEqual(0, LPool.GetPoolSize,
+      'Conexão que sofreu EAccessViolation na leitura de campo não deve voltar ao pool');
+    Assert.AreEqual(1, LEvents.Count, 'Deve disparar exatamente 1 evento pekConnectionDiscarded');
+    Assert.AreEqual<TPoolEventKind>(pekConnectionDiscarded, LEvents[0].Kind);
+    Assert.AreEqual<TPoolDiscardReason>(pdrBrokenAfterUse, LEvents[0].DiscardReason);
   finally
     LEvents.Free;
   end;
