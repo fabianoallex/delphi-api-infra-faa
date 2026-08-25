@@ -92,7 +92,8 @@ type
   // toda acquire/release geraria uma linha de log por requisição.
   TPoolEventKind = (
     pekConnectionCreated,    // nova conexão física criada (ramp-up inicial ou crescimento sob carga)
-    pekConnectionDiscarded,  // uma conexão do pool foi descartada (falhou reconectar ou falhou o teste de vivacidade)
+    pekConnectionDiscarded,  // uma conexão do pool foi descartada (falhou reconectar, falhou o teste
+                             // de vivacidade, ou saiu marcada como quebrada durante o uso — ver TPoolDiscardReason)
     pekAcquireThrottled,     // AcquireConnection precisou esperar (pool no limite) antes de conseguir uma conexão
     pekAcquireTimeout,       // esgotou as tentativas de espera; EPoolTimeoutException será lançada em seguida
     pekIdleSweepClosed       // a varredura de ociosidade fechou uma ou mais conexões
@@ -100,7 +101,10 @@ type
 
   TPoolDiscardReason = (
     pdrConnectFailed,     // ConnectionItem.Connection.Connect falhou ao reconectar
-    pdrStaleCheckFailed   // FFactory.TestConnection retornou False (conexão parada/morta)
+    pdrStaleCheckFailed,  // FFactory.TestConnection retornou False (conexão parada/morta)
+    pdrBrokenAfterUse     // IsConnectionBrokenError (Db.Interfaces) marcou a conexão via
+                           // IDiscardableConnection durante o uso (Query/Commit/Rollback) —
+                           // descartada no release, nunca volta ociosa ao pool
   );
 
   TPoolEvent = record
@@ -148,6 +152,7 @@ type
     procedure Notify(const AEvent: TPoolEvent);
   protected
     procedure ReleaseConnection(AConn: IDBConnection);
+    procedure DiscardConnection(AConn: IDBConnection);
     procedure ReleaseQuery(var AQuery: IQuery);
   public
     // AOnEvent é opcional — sem ele, o pool simplesmente não notifica nada
@@ -184,10 +189,11 @@ type
   { TConnectionWrapper
     Auto-devolve a conexão ao pool quando destruído. }
 
-  TConnectionWrapper = class(TInterfacedObject, IDBConnection, IUnwrapDBConnection)
+  TConnectionWrapper = class(TInterfacedObject, IDBConnection, IUnwrapDBConnection, IDiscardableConnection)
   private
     FPool: IDBConnectionPoolInternalActions;
     FInternalConn: IDBConnection;
+    FDiscard: Boolean;
   public
     constructor Create(APool: IDBConnectionPoolInternalActions; ARealConn: IDBConnection);
     destructor Destroy; override;
@@ -199,6 +205,11 @@ type
     function IsConnected: Boolean;
     procedure Commit;
     procedure Rollback;
+    // IDiscardableConnection — ver comentário na declaração da interface
+    // (Db.Interfaces) e MarkConnectionBrokenIfNeeded, chamado a partir de
+    // TQueryWrapper.Open/ExecSql e TFDTransactionAdapter.Commit/Rollback.
+    procedure MarkForDiscard;
+    function ShouldDiscard: Boolean;
   end;
 
   { TQueryWrapper
@@ -243,7 +254,15 @@ end;
 
 procedure TQueryWrapper.ExecSql;
 begin
-  FInternalQuery.ExecSql;
+  try
+    FInternalQuery.ExecSql;
+  except
+    on E: Exception do
+    begin
+      MarkConnectionBrokenIfNeeded(FInternalQuery.GetConnection, E);
+      raise;
+    end;
+  end;
 end;
 
 function TQueryWrapper.GetConnection: IDBConnection;
@@ -268,7 +287,19 @@ end;
 
 function TQueryWrapper.Open: IQueryResult;
 begin
-  Result := FInternalQuery.Open;
+  try
+    Result := FInternalQuery.Open;
+  except
+    on E: Exception do
+    begin
+      // Ver IsConnectionBrokenError (Db.Interfaces): só marca a conexão para
+      // descarte em EExternal (ex.: Access Violation dentro da chamada
+      // nativa) ou se IsConnected virou False — violação de constraint e
+      // outros erros de dados normais deixam a conexão intocada.
+      MarkConnectionBrokenIfNeeded(FInternalQuery.GetConnection, E);
+      raise;
+    end;
+  end;
 end;
 
 procedure TQueryWrapper.SetSql(const ASql: string);
@@ -288,7 +319,12 @@ end;
 destructor TConnectionWrapper.Destroy;
 begin
   if Assigned(FPool) then
-    FPool.ReleaseConnection(FInternalConn);
+  begin
+    if FDiscard then
+      FPool.DiscardConnection(FInternalConn)
+    else
+      FPool.ReleaseConnection(FInternalConn);
+  end;
   inherited Destroy;
 end;
 
@@ -330,6 +366,16 @@ end;
 procedure TConnectionWrapper.Rollback;
 begin
   FInternalConn.Rollback;
+end;
+
+procedure TConnectionWrapper.MarkForDiscard;
+begin
+  FDiscard := True;
+end;
+
+function TConnectionWrapper.ShouldDiscard: Boolean;
+begin
+  Result := FDiscard;
 end;
 
 { EPoolTimeoutException }
@@ -852,7 +898,16 @@ begin
   else
     LRealConn := AConn;
 
-  LRealConn.Rollback;
+  try
+    LRealConn.Rollback;
+  except
+    // Chamado a partir de TConnectionWrapper.Destroy (um destructor) — nunca
+    // deixa a exceção escapar daqui. Uma conexão que falha no Rollback não
+    // parecia quebrada até agora (senão já teria vindo com FDiscard=True);
+    // não arrisca reenfileirar mesmo assim, descarta.
+    DiscardConnection(LRealConn);
+    Exit;
+  end;
 
   FLockPool.Enter;
   try
@@ -860,6 +915,33 @@ begin
   finally
     FLockPool.Leave;
   end;
+end;
+
+procedure TConnectionPool.DiscardConnection(AConn: IDBConnection);
+var
+  LUnwrapper: IUnwrapDBConnection;
+  LRealConn: IDBConnection;
+  LEvent: TPoolEvent;
+begin
+  if AConn = nil then
+    Exit;
+
+  if Supports(AConn, IUnwrapDBConnection, LUnwrapper) then
+    LRealConn := LUnwrapper.GetRealConnection
+  else
+    LRealConn := AConn;
+
+  try
+    LRealConn.Disconnect(True);
+  except
+    // ignora — a conexão está sendo descartada de qualquer forma
+  end;
+
+  DecrementActiveConnections;
+  Inc(FTotalDiscarded);
+  LEvent := BaseEvent(pekConnectionDiscarded);
+  LEvent.DiscardReason := pdrBrokenAfterUse;
+  Notify(LEvent);
 end;
 
 procedure TConnectionPool.ReleaseQuery(var AQuery: IQuery);

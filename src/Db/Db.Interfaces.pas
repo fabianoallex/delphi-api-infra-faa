@@ -44,6 +44,18 @@ type
     function GetRealConnection: IDBConnection;
   end;
 
+  // Implementada só pelo wrapper que o pool devolve em AcquireConnection
+  // (Db.Connection.Pool.TConnectionWrapper) — nunca pelos adapters "reais"
+  // (TFDConnectionAdapter etc.), que não sabem nada sobre pool. Ver
+  // MarkConnectionBrokenIfNeeded logo abaixo: é o ponto único que decide
+  // quando chamar MarkForDiscard, a partir dos pontos onde a lib toca o
+  // driver nativo (Query.Open/ExecSql, Commit/Rollback de transação).
+  IDiscardableConnection = interface
+    ['{6C8B2E39-6D40-4C4E-9E77-8B5B0DDE9E56}']
+    procedure MarkForDiscard;
+    function ShouldDiscard: Boolean;
+  end;
+
   ITransaction = interface
     ['{DE6B1218-7FCD-4729-8D58-3CBCB3E2BCD4}']
     procedure StartTransaction;
@@ -266,6 +278,10 @@ type
   IDBConnectionPoolInternalActions = interface
     ['{C1EA34EC-6E45-4B99-A2D2-2AEAB4BF382D}']
     procedure ReleaseConnection(AConn: IDBConnection);
+    // Fim de vida de uma conexão que saiu marcada via IDiscardableConnection
+    // (MarkConnectionBrokenIfNeeded) — descarta em vez de reenfileirar, sem
+    // esperar o próximo AcquireConnection provar que ela está morta.
+    procedure DiscardConnection(AConn: IDBConnection);
     procedure ReleaseQuery(var AQuery: IQuery);
   end;
 
@@ -338,6 +354,45 @@ type
     function TestConnection(AConn: IDBConnection): Boolean;
   end;
 
+// Classifica se uma exceção ocorrida durante uma operação de banco (Query,
+// Commit, Rollback) indica que a conexão física ficou com estado
+// comprometido e não deve ser reaproveitada:
+// - EExternal (base de EAccessViolation, EStackOverflow, EPrivilege, ...) —
+//   a CPU faltou dentro de uma chamada nativa; o objeto de conexão não é
+//   mais confiável, independente do que IsConnected reportar depois (por
+//   isso o curto-circuito do "or": nunca se chama IsConnected depois de uma
+//   EExternal).
+// - Qualquer outra exceção seguida de IsConnected = False — a conexão caiu
+//   de fato (ex.: servidor indisponível).
+// Deliberadamente NÃO cobre exceções de dados "normais" (violação de
+// constraint, tipo inválido, etc.) com a conexão ainda IsConnected = True —
+// aí a conexão continua saudável, só a operação falhou; descartar nesse caso
+// geraria churn de conexão em todo erro de negócio comum (ex.: chave
+// duplicada), sem necessidade.
+function IsConnectionBrokenError(E: Exception; AConn: IDBConnection): Boolean;
+
+// Ponto único chamado nos locais onde a lib toca o driver nativo
+// (TQueryWrapper.Open/ExecSql em Db.Connection.Pool;
+// TFDTransactionAdapter.Commit/Rollback/ExecSql em Db.Adapters.FireDAC) —
+// convertido para no-op se AConn não implementar IDiscardableConnection
+// (conexão obtida fora do pool, ou adapter de teste/mock).
+procedure MarkConnectionBrokenIfNeeded(AConn: IDBConnection; E: Exception);
+
 implementation
+
+function IsConnectionBrokenError(E: Exception; AConn: IDBConnection): Boolean;
+begin
+  Result := (E is EExternal) or (Assigned(AConn) and (not AConn.IsConnected));
+end;
+
+procedure MarkConnectionBrokenIfNeeded(AConn: IDBConnection; E: Exception);
+var
+  LDiscardable: IDiscardableConnection;
+begin
+  if not Assigned(AConn) then
+    Exit;
+  if IsConnectionBrokenError(E, AConn) and Supports(AConn, IDiscardableConnection, LDiscardable) then
+    LDiscardable.MarkForDiscard;
+end;
 
 end.

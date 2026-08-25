@@ -359,7 +359,18 @@ begin
     LQuery.Connection := FConn.GetNativeConnection as TFDConnection;
     LQuery.Transaction := FTransaction;
     LQuery.SQL.Text := ASql;
-    LQuery.ExecSQL;
+    try
+      LQuery.ExecSQL;
+    except
+      on E: Exception do
+      begin
+        // Usado para SQL de savepoint (TFDScopeTransactionAdapter) — bypassa
+        // TQueryWrapper (Db.Connection.Pool), então precisa da mesma
+        // classificação aqui. Ver IsConnectionBrokenError (Db.Interfaces).
+        MarkConnectionBrokenIfNeeded(FConn, E);
+        raise;
+      end;
+    end;
   finally
     LQuery.Free;
   end;
@@ -381,13 +392,31 @@ end;
 
 procedure TFDTransactionAdapter.Commit;
 begin
-  FTransaction.Commit;
+  try
+    FTransaction.Commit;
+  except
+    on E: Exception do
+    begin
+      // Ponto real de Commit — bypassa TQueryWrapper (Db.Connection.Pool),
+      // então precisa da mesma classificação aqui. Ver IsConnectionBrokenError.
+      MarkConnectionBrokenIfNeeded(FConn, E);
+      raise;
+    end;
+  end;
   FInTransaction := False;
 end;
 
 procedure TFDTransactionAdapter.Rollback;
 begin
-  FTransaction.Rollback;
+  try
+    FTransaction.Rollback;
+  except
+    on E: Exception do
+    begin
+      MarkConnectionBrokenIfNeeded(FConn, E);
+      raise;
+    end;
+  end;
   FInTransaction := False;
 end;
 

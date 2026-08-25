@@ -50,7 +50,10 @@ type
   { TFakeDBConnection }
 
   TFakeDBConnection = class(TInterfacedObject, IDBConnection)
+  private
+    FConnected: Boolean;
   public
+    constructor Create;
     procedure Commit;
     procedure Connect;
     procedure Disconnect(Force: Boolean = False);
@@ -58,6 +61,9 @@ type
     function GetSQLDialect: ISQLDialect;
     function IsConnected: Boolean;
     procedure Rollback;
+    // Mutável de propósito — testes usam pra simular o driver detectando a
+    // queda da conexão (IsConnected = False) depois de Open/ExecSql falhar.
+    property Connected: Boolean read FConnected write FConnected;
   end;
 
   { TFakeTransaction }
@@ -107,6 +113,8 @@ type
     FSql: string;
     FTransaction: ITransaction;
     FConnection: IDBConnection;
+    FOpenExceptionClass: ExceptClass;
+    FOpenExceptionMsg: string;
   public
     constructor Create(AConn: IDBConnection; ATrans: ITransaction);
     procedure Close;
@@ -117,6 +125,9 @@ type
     function GetTransaction: ITransaction;
     function Open: IQueryResult;
     procedure SetSql(const ASql: string);
+    // Testes de Test_Pool_ConexaoDescartada_* / Test_Pool_ConexaoMantida_* —
+    // faz o próximo Open lançar AExceptionClass em vez de devolver nil.
+    procedure SetRaiseOnOpen(AExceptionClass: ExceptClass; const AMsg: string);
   end;
 
   { TDBFactoryMock }
@@ -125,6 +136,9 @@ type
   private
     FSimulateTestConnectionFail: Boolean;
     FTestedConnections: TList<IDBConnection>;
+    FLastCreatedConnection: TFakeDBConnection;
+    FNextQueryOpenExceptionClass: ExceptClass;
+    FNextQueryOpenExceptionMsg: string;
   public
     constructor Create;
     destructor Destroy; override;
@@ -136,9 +150,15 @@ type
     function GetPool: IDBConnectionPool;
     function SqlLoader: TSQLLoader;
     function TestConnection(AConn: IDBConnection): Boolean;
+    // Consumido uma vez pela próxima CreateQuery — usado pelos testes de
+    // descarte por conexão quebrada (ver TFakeQuery.SetRaiseOnOpen).
+    procedure RaiseOnNextQueryOpen(AExceptionClass: ExceptClass; const AMsg: string = 'fake error');
     property SimulateTestConnectionFail: Boolean
       read FSimulateTestConnectionFail write FSimulateTestConnectionFail;
     property TestedConnections: TList<IDBConnection> read FTestedConnections;
+    // Última TFakeDBConnection criada por CreateConnection — testes usam pra
+    // simular IsConnected caindo depois de uma falha (ver TFakeDBConnection.Connected).
+    property LastCreatedConnection: TFakeDBConnection read FLastCreatedConnection;
   end;
 
   { TPoolStressThread
@@ -186,6 +206,9 @@ type
     [Test] procedure Test_Pool_Evento_ConnectionDiscarded_TestConnectionFalha;
     [Test] procedure Test_Pool_Evento_AcquireTimeout_DisparaAntesDaExcecao;
     [Test] procedure Test_Pool_Evento_IdleSweepClosed_DisparaComContagem;
+    [Test] procedure Test_Pool_ConexaoDescartada_ExcecaoExternal;
+    [Test] procedure Test_Pool_ConexaoDescartada_IsConnectedFalseAposExcecao;
+    [Test] procedure Test_Pool_ConexaoMantida_ExcecaoDeNegocio;
   private
     procedure MaxConnectionsEstoura_Method;
   end;
@@ -237,6 +260,12 @@ end;
 
 { TFakeDBConnection }
 
+constructor TFakeDBConnection.Create;
+begin
+  inherited Create;
+  FConnected := True;
+end;
+
 procedure TFakeDBConnection.Commit;   begin end;
 procedure TFakeDBConnection.Connect;  begin end;
 procedure TFakeDBConnection.Disconnect(Force: Boolean); begin end;
@@ -253,7 +282,7 @@ end;
 
 function TFakeDBConnection.IsConnected: Boolean;
 begin
-  Result := True;
+  Result := FConnected;
 end;
 
 procedure TFakeDBConnection.Rollback; begin end;
@@ -386,12 +415,20 @@ end;
 
 function TFakeQuery.Open: IQueryResult;
 begin
+  if Assigned(FOpenExceptionClass) then
+    raise FOpenExceptionClass.Create(FOpenExceptionMsg);
   Result := nil;
 end;
 
 procedure TFakeQuery.SetSql(const ASql: string);
 begin
   FSql := ASql;
+end;
+
+procedure TFakeQuery.SetRaiseOnOpen(AExceptionClass: ExceptClass; const AMsg: string);
+begin
+  FOpenExceptionClass := AExceptionClass;
+  FOpenExceptionMsg := AMsg;
 end;
 
 { TDBFactoryMock }
@@ -410,13 +447,28 @@ end;
 
 function TDBFactoryMock.CreateConnection: IDBConnection;
 begin
-  Result := TFakeDBConnection.Create;
+  FLastCreatedConnection := TFakeDBConnection.Create;
+  Result := FLastCreatedConnection;
 end;
 
 function TDBFactoryMock.CreateQuery(AConn: IDBConnection;
   ATransaction: ITransaction): IQuery;
+var
+  LQuery: TFakeQuery;
 begin
-  Result := TFakeQuery.Create(AConn, ATransaction);
+  LQuery := TFakeQuery.Create(AConn, ATransaction);
+  if Assigned(FNextQueryOpenExceptionClass) then
+  begin
+    LQuery.SetRaiseOnOpen(FNextQueryOpenExceptionClass, FNextQueryOpenExceptionMsg);
+    FNextQueryOpenExceptionClass := nil;
+  end;
+  Result := LQuery;
+end;
+
+procedure TDBFactoryMock.RaiseOnNextQueryOpen(AExceptionClass: ExceptClass; const AMsg: string);
+begin
+  FNextQueryOpenExceptionClass := AExceptionClass;
+  FNextQueryOpenExceptionMsg := AMsg;
 end;
 
 function TDBFactoryMock.CreateScopeTransaction(
@@ -1380,6 +1432,173 @@ begin
     Assert.AreEqual(Int64(1), LPoolIntf.GetSnapshot.TotalIdleSwept);
   finally
     TClock.Reset;
+    LEvents.Free;
+  end;
+end;
+
+{ TPoolTests — descarte de conexão quebrada durante o uso }
+
+procedure TPoolTests.Test_Pool_ConexaoDescartada_ExcecaoExternal;
+var
+  LConfig: IConnectionPoolConfig;
+  LFactory: IDBFactory;
+  LMockFactory: TDBFactoryMock;
+  LPool: IDBConnectionPool;
+  LQuery: IQuery;
+  LScope: IScopeTransaction;
+  LEvents: TList<TPoolEvent>;
+begin
+  // Reproduz o cenário real: Query.Open estoura EAccessViolation (driver
+  // nativo encontrando o servidor derrubado no meio da chamada) — a conexão
+  // precisa ser descartada mesmo que IsConnected ainda reporte True (estado
+  // em memória, não é round-trip real).
+  LConfig := TConnectionPoolConfig.Create;
+  LConfig.IniConnections := 1;
+  LConfig.MaxConnections := 10;
+
+  LMockFactory := TDBFactoryMock.Create;
+  LFactory := LMockFactory;
+  LEvents := TList<TPoolEvent>.Create;
+  try
+    LPool := TConnectionPool.Create(LFactory, LConfig,
+      procedure(const AEvent: TPoolEvent)
+      begin
+        LEvents.Add(AEvent);
+      end);
+    LEvents.Clear; // descarta o pekConnectionCreated do ramp-up
+
+    Assert.AreEqual(1, LPool.GetPoolSize, 'Pré-condição: 1 conexão ociosa');
+
+    LMockFactory.RaiseOnNextQueryOpen(EAccessViolation, 'fake AV');
+    LQuery := nil;
+    LScope := LPool.AcquireQuery(LQuery);
+    Assert.AreEqual(0, LPool.GetPoolSize, 'A conexão saiu do pool para a query');
+
+    Assert.WillRaise(
+      procedure begin LQuery.Open; end,
+      EAccessViolation,
+      'Open deve propagar a EAccessViolation simulada'
+    );
+
+    LQuery := nil;
+    LScope := nil; // solta as duas referências que seguram a conexão
+
+    Assert.AreEqual(0, LPool.GetPoolSize,
+      'Conexão que sofreu EAccessViolation não deve voltar ao pool');
+    Assert.AreEqual(0, LPool.GetActiveConnections,
+      'Conexão descartada não conta mais como ativa');
+    Assert.AreEqual(1, LEvents.Count, 'Deve disparar exatamente 1 evento pekConnectionDiscarded');
+    Assert.AreEqual<TPoolEventKind>(pekConnectionDiscarded, LEvents[0].Kind);
+    Assert.AreEqual<TPoolDiscardReason>(pdrBrokenAfterUse, LEvents[0].DiscardReason);
+  finally
+    LEvents.Free;
+  end;
+end;
+
+procedure TPoolTests.Test_Pool_ConexaoDescartada_IsConnectedFalseAposExcecao;
+var
+  LConfig: IConnectionPoolConfig;
+  LFactory: IDBFactory;
+  LMockFactory: TDBFactoryMock;
+  LPool: IDBConnectionPool;
+  LQuery: IQuery;
+  LScope: IScopeTransaction;
+  LEvents: TList<TPoolEvent>;
+begin
+  // Exceção "normal" do driver (não EExternal), mas a conexão já reporta
+  // IsConnected=False logo depois — sinal de queda real (ex.: "unavailable
+  // database"), mesmo sem AV.
+  LConfig := TConnectionPoolConfig.Create;
+  LConfig.IniConnections := 1;
+  LConfig.MaxConnections := 10;
+
+  LMockFactory := TDBFactoryMock.Create;
+  LFactory := LMockFactory;
+  LEvents := TList<TPoolEvent>.Create;
+  try
+    LPool := TConnectionPool.Create(LFactory, LConfig,
+      procedure(const AEvent: TPoolEvent)
+      begin
+        LEvents.Add(AEvent);
+      end);
+    LEvents.Clear;
+
+    LMockFactory.RaiseOnNextQueryOpen(Exception, 'unavailable database');
+    LQuery := nil;
+    LScope := LPool.AcquireQuery(LQuery);
+
+    // Simula o driver detectando a queda no momento da falha
+    LMockFactory.LastCreatedConnection.Connected := False;
+
+    Assert.WillRaise(
+      procedure begin LQuery.Open; end,
+      Exception,
+      'Open deve propagar a exceção simulada'
+    );
+
+    LQuery := nil;
+    LScope := nil;
+
+    Assert.AreEqual(0, LPool.GetPoolSize,
+      'Conexão com IsConnected=False após a falha não deve voltar ao pool');
+    Assert.AreEqual(1, LEvents.Count, 'Deve disparar exatamente 1 evento pekConnectionDiscarded');
+    Assert.AreEqual<TPoolDiscardReason>(pdrBrokenAfterUse, LEvents[0].DiscardReason);
+  finally
+    LEvents.Free;
+  end;
+end;
+
+procedure TPoolTests.Test_Pool_ConexaoMantida_ExcecaoDeNegocio;
+var
+  LConfig: IConnectionPoolConfig;
+  LFactory: IDBFactory;
+  LMockFactory: TDBFactoryMock;
+  LPool: IDBConnectionPool;
+  LQuery: IQuery;
+  LScope: IScopeTransaction;
+  LEvents: TList<TPoolEvent>;
+begin
+  // Caso negativo, o mais importante dos três: uma exceção de dados comum
+  // (ex.: violação de constraint, chave duplicada) com a conexão ainda
+  // IsConnected=True NÃO pode descartar a conexão — senão todo erro de
+  // negócio corriqueiro geraria churn de conexão no pool.
+  LConfig := TConnectionPoolConfig.Create;
+  LConfig.IniConnections := 1;
+  LConfig.MaxConnections := 10;
+
+  LMockFactory := TDBFactoryMock.Create;
+  LFactory := LMockFactory;
+  LEvents := TList<TPoolEvent>.Create;
+  try
+    LPool := TConnectionPool.Create(LFactory, LConfig,
+      procedure(const AEvent: TPoolEvent)
+      begin
+        LEvents.Add(AEvent);
+      end);
+    LEvents.Clear;
+
+    Assert.AreEqual(1, LPool.GetPoolSize, 'Pré-condição: 1 conexão ociosa');
+
+    LMockFactory.RaiseOnNextQueryOpen(Exception, 'violation of PRIMARY or UNIQUE KEY constraint');
+    LQuery := nil;
+    LScope := LPool.AcquireQuery(LQuery);
+    // LastCreatedConnection.Connected permanece True (default) — a conexão
+    // continua saudável, só a operação falhou.
+
+    Assert.WillRaise(
+      procedure begin LQuery.Open; end,
+      Exception,
+      'Open deve propagar a exceção simulada'
+    );
+
+    LQuery := nil;
+    LScope := nil;
+
+    Assert.AreEqual(1, LPool.GetPoolSize,
+      'Exceção de negócio com conexão ainda saudável não deve descartar a conexão');
+    Assert.AreEqual(0, LEvents.Count,
+      'Nenhum evento pekConnectionDiscarded deve disparar para erro de dados normal');
+  finally
     LEvents.Free;
   end;
 end;

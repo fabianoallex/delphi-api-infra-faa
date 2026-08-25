@@ -1363,7 +1363,7 @@ Diferente do `TDBMigrationEngine` (que dispara um evento em toda etapa, porque m
 | `TPoolEventKind` | Quando dispara |
 |---|---|
 | `pekConnectionCreated` | Nova conexão física criada (ramp-up inicial ou crescimento sob carga) |
-| `pekConnectionDiscarded` | Uma conexão do pool foi descartada — `DiscardReason` diz se falhou reconectar (`pdrConnectFailed`, com `ErrorMessage`) ou falhou o teste de vivacidade após 120s ociosa (`pdrStaleCheckFailed`) |
+| `pekConnectionDiscarded` | Uma conexão do pool foi descartada — `DiscardReason` diz se falhou reconectar (`pdrConnectFailed`, com `ErrorMessage`), falhou o teste de vivacidade após 120s ociosa (`pdrStaleCheckFailed`), ou saiu marcada como quebrada durante o uso (`pdrBrokenAfterUse` — ver seção seguinte) |
 | `pekAcquireThrottled` | `AcquireConnection` precisou esperar (pool no limite) antes de conseguir uma conexão — `WaitAttempts` diz quantas tentativas |
 | `pekAcquireTimeout` | Esgotou `PoolWaitMaxAttemps`; disparado imediatamente antes de `EPoolTimeoutException` ser lançada |
 | `pekIdleSweepClosed` | A varredura de ociosidade fechou uma ou mais conexões — `ClosedCount` diz quantas |
@@ -1393,6 +1393,70 @@ FileLog('metrics', 'pool: %d/%d ativas, %d ociosas, %d criadas, %d descartadas, 
   [LSnapshot.ActiveConnections, LSnapshot.MaxConnections, LSnapshot.PoolSize,
    LSnapshot.TotalCreated, LSnapshot.TotalDiscarded, LSnapshot.TotalTimeouts]);
 ```
+
+### Resiliência: servidor de banco reiniciando ou fora do ar
+
+Dois cenários comuns em banco local/on-premises compartilhado com outras aplicações — nenhum dos
+dois é peculiaridade desta lib, mas os dois merecem tratamento explícito no projeto consumidor:
+
+**1. Servidor de banco reinicia com o serviço já rodando.** Conexão em uso no momento do restart
+falha na hora (exceção do driver sobe até o `TErrorHandlerMiddleware`, vira 500 — comportamento
+correto, não tem o que recuperar no meio de uma transação). Historicamente essa mesma conexão
+voltava pro pool como se estivesse saudável — `ReleaseConnection` reenfileirava incondicionalmente,
+sem checar se a exceção acabada de acontecer indicava conexão quebrada — e só era pega na
+próxima aquisição. Em cima de um Firebird local morto abruptamente (ex.: parar o serviço do
+Windows em vez de um shutdown gracioso), isso podia se manifestar até como **Access Violation**:
+a chamada nativa ao driver (`fbclient`/`gds32`) encontra o processo do servidor sumido no meio da
+operação e, em vez de devolver uma exceção limpa do FireDAC, corrompe o estado do objeto de
+conexão o bastante para estourar AV — capturado como exceção Delphi normal no
+`TErrorHandlerMiddleware`, então o serviço sobrevive, mas a conexão AV'd ainda voltava pro pool.
+
+Por isso `Db.Connection.Pool`/`Db.Adapters.FireDAC` agora classificam toda exceção que ocorre nos
+pontos onde a lib toca o driver nativo (`Query.Open`/`ExecSql`, `Commit`/`Rollback` de transação —
+ver `IsConnectionBrokenError` em `Db.Interfaces`) como "conexão quebrada" quando é uma
+`EExternal` (base de `EAccessViolation`, `EStackOverflow`, `EPrivilege`, ...) **ou** quando
+`IsConnected` virou `False` logo depois. Deliberadamente **não** cobre exceções de dados normais
+(violação de constraint, tipo inválido, ...) com a conexão ainda `IsConnected = True` — aí a
+conexão continua saudável, só a operação falhou; descartar nesse caso geraria churn de conexão em
+todo erro de negócio comum (ex.: chave duplicada mapeada para `EConflictException`). Uma conexão
+classificada como quebrada é marcada via `IDiscardableConnection.MarkForDiscard` e, no fim da
+requisição, `TConnectionWrapper.Destroy` a descarta (`DiscardConnection`, evento
+`pdrBrokenAfterUse`) em vez de reenfileirar — fecha a janela para a conexão que efetivamente foi
+usada e falhou; **não** substitui o `Ping` de 120s para conexões que ficaram ociosas o tempo todo
+e nunca chegaram a ser usadas depois do restart (aquela janela continua existindo, mitigada por
+`PoolIdleTimeoutSeconds` mais agressivo, como já descrito).
+
+**2. Serviço sobe antes do banco estar disponível** (boot do SO, banco ainda montando). Não há
+retry embutido no pool: `TConnectionPool.Create` chama `CreateInitialConnections`, que tenta
+abrir `PoolIniConnections` conexões físicas de uma vez — se o `Connect` falhar, a exceção sobe
+direto do construtor do pool e derruba a inicialização do serviço no `.dpr`. O tratamento fica no
+projeto consumidor, com retry-with-backoff em volta da montagem da factory/pool:
+
+```pascal
+var
+  LFactory: IDBFactory;
+  LPool: IDBConnectionPool;
+begin
+  repeat
+    try
+      LFactory := TFDFactory.Create(LConfig, nil);
+      LPool := LFactory.GetPool;   // é aqui que CreateInitialConnections roda e pode falhar
+      Break;
+    except
+      on E: Exception do
+      begin
+        FileLog(['exception', 'inicializacao'],
+          'Falha ao conectar no banco, tentando novamente em 5s: %s', [E.Message]);
+        Sleep(5000);
+      end;
+    end;
+  until False;
+```
+
+Combine com as [Recovery Actions](https://learn.microsoft.com/windows/win32/services/service-recovery-actions)
+do serviço Windows (reiniciar em falha) como rede de segurança adicional — o retry acima evita
+que o serviço morra na primeira tentativa, mas não substitui o SCM reiniciando o processo se algo
+mais grave impedir o loop de sair.
 
 ---
 
