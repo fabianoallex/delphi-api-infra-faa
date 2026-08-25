@@ -1551,21 +1551,40 @@ nunca pro cliente. A AV em si
 continua acontecendo (não tem como evitar a CPU faltando dentro da chamada nativa), mas quem
 consome a API nunca mais vê isso cru — ver "Hierarquia de exceções" na seção Middleware de erros.
 
-**2. Serviço sobe antes do banco estar disponível** (boot do SO, banco ainda montando). Não há
-retry embutido no pool: `TConnectionPool.Create` chama `CreateInitialConnections`, que tenta
-abrir `PoolIniConnections` conexões físicas de uma vez — se o `Connect` falhar, a exceção sobe
-direto do construtor do pool e derruba a inicialização do serviço no `.dpr`. O tratamento fica no
-projeto consumidor, com retry-with-backoff em volta da montagem da factory/pool:
+**2. Serviço sobe antes do banco estar disponível** (boot do SO, banco ainda montando).
+`TConnectionPool.Create` chama `CreateInitialConnections`, que tenta abrir `PoolIniConnections`
+conexões físicas de uma vez; se o `Connect` de uma delas falhar, a falha é capturada ali mesmo
+(logada via o mesmo `AOnPoolEvent` — `pekConnectionDiscarded` / `pdrConnectFailed` — como
+qualquer outra reconexão que falhou) e o loop segue para a próxima tentativa. **A exceção nunca
+sobe do construtor do pool** — `TFDFactory.Create` retorna normalmente mesmo com o banco
+inteiramente fora do ar, o `.dpr` continua o boot (outros bancos, middlewares, rotas), e o pool
+fica pronto para tentar de novo sob demanda: a próxima `AcquireConnection` real (primeira
+requisição que precisar desse banco, ou o health check) tenta abrir a conexão de novo, e falha ou
+sucede de acordo com o estado atual do banco naquele instante.
+
+Isso cobre o boot em si. Continua existindo uma janela — comum a qualquer pool, não específica
+desta lib — entre "o processo está de pé" e "o banco realmente respondeu pela primeira vez":
+enquanto isso, requisições que dependem desse banco recebem erro (idealmente 503 via
+`EDatabaseUnavailableException`, ver item 1 acima), não sucesso. Se o objetivo for o processo
+nunca aceitar tráfego antes do banco responder pelo menos uma vez (em vez de subir degradado e ir
+convertendo em 503 até o banco voltar), a estratégia de retry-with-backoff em volta da montagem
+da factory continua válida — só que agora é escolha do projeto consumidor, não algo imposto pela
+lib:
 
 ```pascal
 var
   LFactory: IDBFactory;
-  LPool: IDBConnectionPool;
 begin
   repeat
     try
       LFactory := TFDFactory.Create(LConfig, nil);
-      LPool := LFactory.GetPool;   // é aqui que CreateInitialConnections roda e pode falhar
+      // sucesso não garante mais nada aqui: com o fix acima, o construtor
+      // retorna normalmente mesmo se PoolIniConnections não abriu nenhuma
+      // conexão. Para exigir ao menos uma conexão viva antes de prosseguir,
+      // teste explicitamente — AcquireConnection sem variável libera a
+      // conexão de volta ao pool (ainda conectada) assim que a expressão
+      // termina, pronta para a primeira requisição real:
+      LFactory.GetPool.AcquireConnection;
       Break;
     except
       on E: Exception do
@@ -1579,9 +1598,7 @@ begin
 ```
 
 Combine com as [Recovery Actions](https://learn.microsoft.com/windows/win32/services/service-recovery-actions)
-do serviço Windows (reiniciar em falha) como rede de segurança adicional — o retry acima evita
-que o serviço morra na primeira tentativa, mas não substitui o SCM reiniciando o processo se algo
-mais grave impedir o loop de sair.
+do serviço Windows (reiniciar em falha) como rede de segurança adicional.
 
 ---
 

@@ -180,6 +180,10 @@ type
     FNextQueryOpenExceptionClass: ExceptClass;
     FNextQueryOpenExceptionMsg: string;
     FNextQueryOpenResult: IQueryResult;
+    // Test_Pool_InicialConnections_BancoForaDoAr_* — quantas próximas chamadas
+    // a CreateConnection devem simular "banco fora do ar" (Connect falhando),
+    // decrementado a cada chamada até chegar a 0.
+    FCreateConnectionFailuresRemaining: Integer;
   public
     constructor Create;
     destructor Destroy; override;
@@ -197,6 +201,9 @@ type
     // Consumido uma vez pela próxima CreateQuery — Open dessa query devolve
     // AResult (com sucesso) em vez de nil (ver TFakeQuery.SetOpenResult).
     procedure SetNextQueryOpenResult(AResult: IQueryResult);
+    // Faz as próximas ACount chamadas a CreateConnection lançarem exceção
+    // (simula Connect falhando por banco fora do ar).
+    procedure SimulateCreateConnectionFail(ACount: Integer);
     property SimulateTestConnectionFail: Boolean
       read FSimulateTestConnectionFail write FSimulateTestConnectionFail;
     property TestedConnections: TList<IDBConnection> read FTestedConnections;
@@ -255,6 +262,8 @@ type
     [Test] procedure Test_Pool_ConexaoMantida_ExcecaoDeNegocio;
     [Test] procedure Test_Pool_ConexaoDescartada_ExcecaoDuranteLeituraDeCampo;
     [Test] procedure Test_EDatabaseUnavailableException_PreservaDetalheOriginal;
+    [Test] procedure Test_Pool_InicialConnections_BancoForaDoAr_NaoLancaExcecao;
+    [Test] procedure Test_Pool_InicialConnections_BancoForaDoAr_RecuperaNaProximaAcquire;
   private
     procedure MaxConnectionsEstoura_Method;
     // DUnitX.Assert.WillRaise espera um método de instância (TTestLocalMethod
@@ -624,8 +633,19 @@ end;
 
 function TDBFactoryMock.CreateConnection: IDBConnection;
 begin
+  if FCreateConnectionFailuresRemaining > 0 then
+  begin
+    Dec(FCreateConnectionFailuresRemaining);
+    raise Exception.Create('fake connect failure (banco fora do ar)');
+  end;
+
   FLastCreatedConnection := TFakeDBConnection.Create;
   Result := FLastCreatedConnection;
+end;
+
+procedure TDBFactoryMock.SimulateCreateConnectionFail(ACount: Integer);
+begin
+  FCreateConnectionFailuresRemaining := ACount;
 end;
 
 function TDBFactoryMock.CreateQuery(AConn: IDBConnection;
@@ -757,6 +777,87 @@ begin
 
   Assert.AreEqual(5, LPool.GetPoolSize,
     'Pool deve ter 5 conexões iniciais');
+end;
+
+procedure TPoolTests.Test_Pool_InicialConnections_BancoForaDoAr_NaoLancaExcecao;
+var
+  LConfig: IConnectionPoolConfig;
+  LMockFactory: TDBFactoryMock;
+  LFactory: IDBFactory;
+  LPool: IDBConnectionPool;
+  LEvents: TList<TPoolEvent>;
+  I: Integer;
+begin
+  // Simula TFDFactory.Create com o banco inteiramente fora do ar: as 3
+  // tentativas do ramp-up inicial falham. O construtor do pool não pode
+  // deixar a exceção subir (ver CreateInitialConnections) — é exatamente
+  // isso que garante que TFDFactory.Create/ConfigurarBancoXxx não derrube o
+  // boot da aplicação inteira.
+  LConfig := TConnectionPoolConfig.Create;
+  LConfig.IniConnections := 3;
+  LConfig.MaxConnections := 10;
+
+  LMockFactory := TDBFactoryMock.Create;
+  LMockFactory.SimulateCreateConnectionFail(3);
+  LFactory := LMockFactory;
+
+  LEvents := TList<TPoolEvent>.Create;
+  try
+    LPool := TConnectionPool.Create(LFactory, LConfig,
+      procedure(const AEvent: TPoolEvent)
+      begin
+        LEvents.Add(AEvent);
+      end);
+
+    Assert.AreEqual(0, LPool.GetPoolSize,
+      'Nenhuma conexão deve sobreviver ao ramp-up com o banco fora do ar');
+    Assert.AreEqual(0, LPool.GetActiveConnections,
+      'FActiveConnections deve voltar a 0 após cada falha (sem vazamento de contagem)');
+
+    Assert.AreEqual(3, LEvents.Count,
+      'Cada falha do ramp-up inicial deve gerar 1 evento pekConnectionDiscarded');
+    for I := 0 to LEvents.Count - 1 do
+    begin
+      Assert.AreEqual<TPoolEventKind>(pekConnectionDiscarded, LEvents[I].Kind);
+      Assert.AreEqual<TPoolDiscardReason>(pdrConnectFailed, LEvents[I].DiscardReason);
+    end;
+
+    Assert.AreEqual(Int64(0), LPool.GetSnapshot.TotalCreated);
+    Assert.AreEqual(Int64(3), LPool.GetSnapshot.TotalDiscarded);
+  finally
+    LEvents.Free;
+  end;
+end;
+
+procedure TPoolTests.Test_Pool_InicialConnections_BancoForaDoAr_RecuperaNaProximaAcquire;
+var
+  LConfig: IConnectionPoolConfig;
+  LMockFactory: TDBFactoryMock;
+  LFactory: IDBFactory;
+  LPool: IDBConnectionPool;
+  LConn: IDBConnection;
+begin
+  // Banco volta a responder logo depois do boot: o ramp-up inicial falha
+  // (2 tentativas), mas a próxima AcquireConnection real (1ª requisição/health
+  // check) já não tem mais falha simulada e deve suceder normalmente.
+  LConfig := TConnectionPoolConfig.Create;
+  LConfig.IniConnections := 2;
+  LConfig.MaxConnections := 10;
+
+  LMockFactory := TDBFactoryMock.Create;
+  LMockFactory.SimulateCreateConnectionFail(2);
+  LFactory := LMockFactory;
+
+  LPool := TConnectionPool.Create(LFactory, LConfig);
+
+  Assert.AreEqual(0, LPool.GetActiveConnections,
+    'Ramp-up inicial falhou por completo — pool nasce vazio, não quebrado');
+
+  LConn := LPool.AcquireConnection;
+
+  Assert.IsNotNull(LConn, 'Banco já respondendo: AcquireConnection deve suceder normalmente');
+  Assert.AreEqual(1, LPool.GetActiveConnections);
+  Assert.AreEqual(Int64(1), LPool.GetSnapshot.TotalCreated);
 end;
 
 procedure TPoolTests.Test_Pool_MaxConnections_Estoura;

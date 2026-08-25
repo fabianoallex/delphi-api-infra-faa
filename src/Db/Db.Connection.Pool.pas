@@ -100,7 +100,9 @@ type
   );
 
   TPoolDiscardReason = (
-    pdrConnectFailed,     // ConnectionItem.Connection.Connect falhou ao reconectar
+    pdrConnectFailed,     // ConnectionItem.Connection.Connect falhou ao reconectar, ou
+                           // AcquireConnection falhou ao abrir uma conexão nova durante o
+                           // ramp-up inicial (CreateInitialConnections, banco fora do ar no boot)
     pdrStaleCheckFailed,  // FFactory.TestConnection retornou False (conexão parada/morta)
     pdrBrokenAfterUse     // IsConnectionBrokenError (Db.Interfaces) marcou a conexão via
                            // IDiscardableConnection durante o uso (Query/Commit/Rollback) —
@@ -1026,13 +1028,38 @@ var
     criar conexões físicas novas. Ao sair do procedure, o array sai de escopo,
     todos os Wrappers são liberados e as conexões voltam ao pool. }
   Holders: TArray<IDBConnection>;
+  LEvent: TPoolEvent;
 begin
   if FIniConnections <= 0 then
     Exit;
 
   SetLength(Holders, FIniConnections);
   for I := 0 to FIniConnections - 1 do
-    Holders[I] := AcquireConnection;
+  begin
+    try
+      Holders[I] := AcquireConnection;
+    except
+      // IniConnections > MaxConnections é erro de configuração, não "banco
+      // fora do ar" — continua subindo, como sempre subiu (ver
+      // Test_Pool_MaxConnections_Estoura/Test_Pool_Evento_AcquireTimeout_*).
+      on E: EPoolTimeoutException do
+        raise;
+      on E: Exception do
+      begin
+        { Banco fora do ar (ou inacessível) no boot: não deixamos a falha subir
+          e derrubar TConnectionPool.Create/TFDFactory.Create por causa do
+          ramp-up inicial. Holders[I] fica nil (AcquireConnection já reverteu
+          FActiveConnections em TryGetNewConnection) e o pool nasce sem essa
+          conexão pré-aquecida; a próxima AcquireConnection real (primeira
+          requisição, health check, etc.) tenta de novo. }
+        Inc(FTotalDiscarded);
+        LEvent := BaseEvent(pekConnectionDiscarded);
+        LEvent.DiscardReason := pdrConnectFailed;
+        LEvent.ErrorMessage := E.Message;
+        Notify(LEvent);
+      end;
+    end;
+  end;
 end;
 
 procedure TConnectionPool.IncrementActiveConnections;
