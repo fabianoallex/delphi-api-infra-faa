@@ -1416,7 +1416,14 @@ pontos onde a lib toca o driver nativo — `Query.Open`/`ExecSql`, **a leitura d
 `IQueryResult` devolvido por `Open`** (`TQueryResultWrapper` — o `Open` em si pode retornar com
 sucesso e o servidor cair só no meio do fetch, que é onde boa parte do tempo de uma query
 realmente toca o driver; sem esse wrapper especificamente, a classificação cobria só a metade
-menos frequente do ciclo de vida da query) e `Commit`/`Rollback` de transação — ver
+menos frequente do ciclo de vida da query), `Commit`/`Rollback` de transação, **e
+`StartTransaction`** (`TFDTransactionAdapter.StartTransaction` — é o primeiro round-trip real ao
+servidor quando o Repository chama `LScope.StartTransaction` explicitamente antes do `try/except`,
+padrão documentado neste próprio README para Insert/Update e usado também por qualquer Find/Get
+que abra transação cedo; como essa chamada fica *fora* do `try/except` do Repository, sem
+classificação nesse ponto específico a exceção nunca passava por `MarkConnectionBrokenIfNeeded` em
+lugar nenhum — foi exatamente esse o gap que sobreviveu às duas primeiras rodadas de correção e só
+apareceu com teste real contra o Firebird derrubado, não nos testes unitários com mocks) — ver
 `IsConnectionBrokenError` em `Db.Interfaces`) como "conexão quebrada" quando é uma
 `EExternal` (base de `EAccessViolation`, `EStackOverflow`, `EPrivilege`, ...) **ou** quando
 `IsConnected` virou `False` logo depois. Deliberadamente **não** cobre exceções de dados normais

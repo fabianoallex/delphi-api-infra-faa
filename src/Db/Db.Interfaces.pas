@@ -375,7 +375,13 @@ function IsConnectionBrokenError(E: Exception; AConn: IDBConnection): Boolean;
 // TQueryWrapper.Open/ExecSql e TQueryResultWrapper (leitura de campo do
 // IQueryResult devolvido por Open — cobre o AV que acontece só no meio do
 // fetch, depois do Open já ter retornado com sucesso) em Db.Connection.Pool;
-// TFDTransactionAdapter.Commit/Rollback/ExecSql em Db.Adapters.FireDAC.
+// TFDTransactionAdapter.StartTransaction/Commit/Rollback/ExecSql em
+// Db.Adapters.FireDAC — StartTransaction é o primeiro round-trip real ao
+// servidor quando o Repository chama LScope.StartTransaction explicitamente
+// ANTES do try/except (padrão documentado no CLAUDE.md para Insert/Update, e
+// usado também por Find/Get que abrem transação cedo) — como fica fora do
+// try/except do Repository, sem essa classificação aqui a exceção nunca
+// passava por MarkConnectionBrokenIfNeeded em lugar nenhum.
 // Convertido para no-op se AConn não implementar IDiscardableConnection
 // (conexão obtida fora do pool, ou adapter de teste/mock).
 procedure MarkConnectionBrokenIfNeeded(AConn: IDBConnection; E: Exception);

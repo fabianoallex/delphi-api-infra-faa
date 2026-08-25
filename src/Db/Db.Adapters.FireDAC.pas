@@ -385,7 +385,22 @@ procedure TFDTransactionAdapter.StartTransaction;
 begin
   if not FInTransaction then
   begin
-    FTransaction.StartTransaction;
+    try
+      FTransaction.StartTransaction;
+    except
+      on E: Exception do
+      begin
+        // Ponto real de início de transação — é aqui que o primeiro round-trip
+        // ao servidor de fato acontece quando o Repository chama
+        // LScope.StartTransaction explicitamente ANTES do try/except (padrão
+        // documentado no CLAUDE.md para Insert/Update, e usado em qualquer
+        // Find que também abra transação cedo) — bypassa TQueryWrapper.Open
+        // (Db.Connection.Pool) inteiramente, então precisa da mesma
+        // classificação aqui. Ver IsConnectionBrokenError (Db.Interfaces).
+        MarkConnectionBrokenIfNeeded(FConn, E);
+        raise;
+      end;
+    end;
     FInTransaction := True;
   end;
 end;
