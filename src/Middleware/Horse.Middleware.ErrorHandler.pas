@@ -124,6 +124,38 @@ var
   // (THorseCore.FOnError também é um único slot global, não por middleware).
   GOnError: TLogProc;
 
+// TJSONObject.ToJSON escapa todo caractere > 127 como \uXXXX por padrão,
+// sem flag pra desligar nesta versão do Delphi — sem isso, qualquer mensagem
+// de erro com acento (ex. "indisponível", "não encontrado") chega
+// ao cliente ilegível assim, em vez de "indisponível"/"não encontrado".
+// Tecnicamente é JSON válido (qualquer parser decodifica de volta certo).
+// Reverte só esse escaping extra — não re-implementa aspas/barras/controle,
+// que o TJSONObject já escapa corretamente antes desta função rodar.
+// Limitação aceita: não trata pares substitutos (caracteres fora do BMP,
+// \uD800-\uDFFF) — irrelevante para mensagem de erro em português.
+function UnescapeNonAsciiJSON(const AJson: string): string;
+var
+  I, LCode: Integer;
+begin
+  Result := '';
+  I := 1;
+  while I <= Length(AJson) do
+  begin
+    if (AJson[I] = '\') and (I + 5 <= Length(AJson)) and (AJson[I + 1] = 'u') then
+    begin
+      LCode := StrToIntDef('$' + Copy(AJson, I + 2, 4), -1);
+      if LCode > 127 then
+      begin
+        Result := Result + Chr(LCode);
+        Inc(I, 6);
+        Continue;
+      end;
+    end;
+    Result := Result + AJson[I];
+    Inc(I);
+  end;
+end;
+
 procedure HandleHorseError(const ARequest: THorseRequest; const AResponse: THorseResponse;
   const AException: Exception);
 var
@@ -167,7 +199,8 @@ begin
   LJson := TJSONObject.Create;
   try
     LJson.AddPair('error', LMessage);
-    AResponse.Status(LStatus).ContentType('application/json; charset=utf-8').Send(LJson.ToJSON);
+    AResponse.Status(LStatus).ContentType('application/json; charset=utf-8')
+       .Send(UnescapeNonAsciiJSON(LJson.ToJSON));
   finally
     LJson.Free;
   end;
