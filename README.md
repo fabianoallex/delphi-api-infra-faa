@@ -19,6 +19,7 @@ src/
     Common.Pagination.pas     — TPageMeta, TPageParams: paginação padronizada com WrapJson
     Common.Config.pas         — TAppConfig: leitura de env vars com fallback para .env
     Common.HealthCheck.pas    — THealthCheck: registra GET /health com verificação de banco
+    Common.PoolSnapshotEndpoint.pas — TPoolSnapshotEndpoint: registra GET /pool/snapshot com métricas do pool
   Db/
     Db.Interfaces.pas         — IDBConnection, IDBConnectionPool, ITransaction, IQuery, IMigrationDialect
     Db.Connection.Pool.pas    — TConnectionPool thread-safe com timeout e inatividade
@@ -683,6 +684,102 @@ O path padrão é `/health`. Para usar outro:
 ```pascal
 THealthCheck.Register(LFactory, '/status');
 ```
+
+---
+
+## Snapshot do pool (métricas online)
+
+O módulo `Common.PoolSnapshotEndpoint` registra um endpoint `GET /pool/snapshot` diretamente no
+Horse, **fora do Swagger e do MCP**, expondo o mesmo `TPoolSnapshot`
+(`IDBFactory.GetPool.GetSnapshot`) que um logger periódico (ex.: `TSnapshotPoolLogger`, no
+projeto consumidor) grava em arquivo — mesmos números, mas para acompanhamento online (dashboard,
+`curl`, etc.) em vez de log.
+
+Diferente de `THealthCheck`, este endpoint expõe métricas internas do pool, não é um probe de
+infraestrutura — se precisar restringir acesso, registre-o **depois** do middleware de auth
+(`TAuthMiddleware`/`TJwtMiddleware`) no DPR, ao contrário do padrão "health check antes dos
+middlewares".
+
+### Registro
+
+```pascal
+uses
+  Common.PoolSnapshotEndpoint in 'infra\src\Common\Common.PoolSnapshotEndpoint.pas';
+
+begin
+  LFactory := TFDFactory.Create(LConfig, nil);
+  // sem auth (métricas públicas na rede interna, por exemplo):
+  TPoolSnapshotEndpoint.Register(LFactory);           // ← GET /pool/snapshot
+
+  // OU, restringindo por auth — registre depois do middleware:
+  // THorse.Use(TAuthMiddleware.Bearer(...));
+  // TPoolSnapshotEndpoint.Register(LFactory);
+  // ...
+end.
+```
+
+### Resposta
+
+```bash
+curl http://localhost:9000/pool/snapshot
+```
+
+```json
+{
+  "activeConnections": 2,
+  "idleConnections": 1,
+  "maxConnections": 20,
+  "iniConnections": 3,
+  "totalCreated": 5,
+  "totalDiscarded": 0,
+  "totalTimeouts": 0,
+  "totalIdleSwept": 0,
+  "timestamp": "2026-08-25T14:03:10"
+}
+```
+
+O path padrão é `/pool/snapshot`. Para usar outro:
+
+```pascal
+TPoolSnapshotEndpoint.Register(LFactory, '/pool/status');
+```
+
+### Múltiplos acessos a banco (`TNamedPool`)
+
+Aplicações com mais de um `IDBFactory` — bancos diferentes, ou pools separados para o mesmo banco
+(ex.: principal, fiscal, logs) — usam o overload que recebe um array de `TNamedPool`. Cada entrada
+é nomeada explicitamente, e a resposta agrupa cada pool por esse nome em `"pools"`:
+
+```pascal
+uses
+  Common.PoolSnapshotEndpoint in 'infra\src\Common\Common.PoolSnapshotEndpoint.pas';
+
+begin
+  TPoolSnapshotEndpoint.Register([
+    TNamedPool.New('principal', LFactoryPrincipal),
+    TNamedPool.New('fiscal',    LFactoryFiscal),
+    TNamedPool.New('logs',      LFactoryLogs)
+  ]);   // ← GET /pool/snapshot
+  // ...
+end.
+```
+
+```bash
+curl http://localhost:9000/pool/snapshot
+```
+
+```json
+{
+  "pools": {
+    "principal": { "activeConnections": 2, "idleConnections": 1, "maxConnections": 20, "iniConnections": 3, "totalCreated": 5, "totalDiscarded": 0, "totalTimeouts": 0, "totalIdleSwept": 0 },
+    "fiscal":    { "activeConnections": 0, "idleConnections": 3, "maxConnections": 10, "iniConnections": 3, "totalCreated": 3, "totalDiscarded": 0, "totalTimeouts": 0, "totalIdleSwept": 0 },
+    "logs":      { "activeConnections": 1, "idleConnections": 0, "maxConnections": 5,  "iniConnections": 1, "totalCreated": 1, "totalDiscarded": 0, "totalTimeouts": 0, "totalIdleSwept": 0 }
+  },
+  "timestamp": "2026-08-25T14:03:10"
+}
+```
+
+O mesmo parâmetro `APath` opcional se aplica a este overload.
 
 ---
 
