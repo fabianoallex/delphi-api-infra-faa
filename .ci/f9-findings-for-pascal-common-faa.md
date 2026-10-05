@@ -30,6 +30,11 @@ isso os consumidores precisam de `git submodule update --init --recursive`, e es
 baixa `infra/external/pascal-common-faa` (e o `external/pascal-jsonmapper-faa` de dentro dela)
 para a árvore da aplicação.
 
+Medido na atualização do api-test (2026-10-05): `git submodule update --init --recursive infra`
+baixou `infra/external/pascal-common-faa` e `infra/external/pascal-common-faa/external/pascal-jsonmapper-faa`
+(este último com "Failed to clone ... Retry scheduled" na primeira tentativa) para dentro da
+árvore da aplicação, que já tinha a sua `modules/pascal-common-faa`.
+
 Não quebra nada sozinho: a cópia fica em disco e é ignorada enquanto o search path da aplicação
 apontar para a cópia dela. Mas é uma segunda cópia a um `;` de distância no search path, e o
 diamante volta assim que alguém aponta para ela "porque já estava lá". Nesta migração a regra foi

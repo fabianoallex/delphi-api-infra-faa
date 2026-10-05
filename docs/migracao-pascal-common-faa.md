@@ -36,10 +36,13 @@ Da raiz do projeto consumidor (nunca de dentro de `infra/`):
    ```bash
    git -C infra fetch --tags
    git -C infra checkout v0.1.0
+   git add infra
    git submodule update --init --recursive infra
    ```
 
-   O `--recursive` continua necessário (SwagDoc é submodule aninhado da infra) e, com ele, vem
+   O `git add infra` vem **antes** do `submodule update`: o update leva o submodule ao commit
+   gravado no índice do projeto pai, e sem o `add` esse ainda é o ponteiro antigo (o checkout
+   seria desfeito sem aviso). O `--recursive` continua necessário (SwagDoc é submodule aninhado da infra) e, com ele, vem
    também `infra/external/pascal-common-faa`. Ela fica em disco, mas **não entra no search path**.
 
 2. **Adicionar a pascal-common-faa como submodule da aplicação**, na mesma pasta dos outros
@@ -124,7 +127,9 @@ Da raiz do projeto consumidor (nunca de dentro de `infra/`):
 > `infra/CHANGELOG.md`.
 >
 > O que fazer:
-> - `infra` na tag v0.1.0 (`git submodule update --init --recursive infra` depois do checkout);
+> - `infra` na tag v0.1.0: `git -C infra checkout v0.1.0`, depois `git add infra` e só então
+>   `git submodule update --init --recursive infra` (sem o `add`, o update desfaz o checkout; o
+>   guia na tag v0.1.0 tem esse passo errado, a versão certa está na main);
 > - submódulo `modules/pascal-common-faa` na tag v1.1.1, sem recursive — é a única cópia da
 >   aplicação; nunca pôr `infra\external\...` no search path;
 > - `Api.Starter` e `Api.Starter.Svc`: search path (`modules\pascal-common-faa\src`), `uses` do
