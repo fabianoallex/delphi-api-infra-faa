@@ -4,7 +4,7 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); 
 [SemVer](https://semver.org/lang/pt-BR/). Antes da 0.1.0 a lib não tinha versões: os consumidores
 apontavam o submódulo para um commit.
 
-## [Não lançado]
+## [0.1.1] — 2026-10-05
 
 ### Corrigido
 
@@ -23,6 +23,12 @@ apontavam o submódulo para um commit.
 - `ProcessTag` lança `ESQLLoaderException` para bloco malformado da tag: fechamento sem abertura
   antes, abertura sem fechamento depois, ou bloco aninhado em outro da mesma tag. Antes deixava
   marcações no SQL, removia o texto errado ou travava.
+
+### Documentação
+
+- CLAUDE.md: o Pre-build event do `build_sql_res.bat` tem que ser configurado pela IDE (Build
+  Events). Um `<Target Name="BeforeBuild">` escrito à mão no `.dproj` é ignorado pelo build da IDE
+  e deixa o `.res` velho sem erro nenhum (achado no starter e no api-test).
 
 ## [0.1.0] — 2026-10-05
 

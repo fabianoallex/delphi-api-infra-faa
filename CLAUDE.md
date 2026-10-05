@@ -417,6 +417,14 @@ Project Options > Building > Build Events > Pre-build event:
   call tools\build_sql_res.bat
 ```
 
+**Sempre pela IDE** (Target "All configurations - All platforms"), nunca editando o `.dproj` à
+mão. A IDE grava `<PreBuildEvent><![CDATA[call tools\build_sql_res.bat` + `$(PreBuildEvent)]]>`
+num `PropertyGroup`. Um `<Target Name="BeforeBuild"><Exec .../></Target>` escrito à mão no fim
+do `.dproj` **é ignorado pelo build da IDE**, sem erro nenhum: foi assim que o starter e o api-test
+ficaram meses com o `.res` velho (medido em 2026-10-05: Build Events vazio, `queries.res` de
+maio/agosto, um `.sql` corrigido que não chegava ao `.exe`). Para conferir que funciona: depois de
+um Build, a data do `.res` tem que ser a do build.
+
 O script varre toda a árvore `sql/` (funciona tanto pro caso simples — `sql/queries.rc` — quanto
 pro multi-banco — `sql/fb/fb.rc` + `sql/pg/pg.rc`, ou qualquer outra estrutura de subpastas) e
 recompila **todo** `.rc` encontrado, sempre, em toda build — não tenta detectar "mudou ou não":
