@@ -25,6 +25,19 @@ type
     [} ENTITY_NAME] --> TAG DE FIM
 
     ProcessTag diz se mantém ou remove a condição entre as tags
+
+    Os dois marcadores seguem a mesma regra, no ProcessTag e na limpeza de
+    .SQL: espaços opcionais em volta do nome, então [TAG{], [ TAG {], [}TAG]
+    e [} TAG ] valem. ProcessTag pareia cada abertura com o fechamento
+    seguinte e lança ESQLLoaderException para fechamento sem abertura antes,
+    abertura sem fechamento depois, ou bloco aninhado em outro da mesma tag.
+    Antes, o fechamento só era reconhecido com exatamente um espaço
+    ([} TAG]) e os dois marcadores eram procurados desde o início do texto,
+    cada um por conta própria: um [}TAG] não reconhecido deixava as
+    marcações no SQL (o FireDAC então reclamava das chaves com um -307 que
+    não diz a causa), ou pareava a abertura com o fechamento de outro bloco
+    e apagava o SQL entre eles, ou entrava em laço infinito. Portado de
+    pascal-db-faa 0.10.0 (16d1649).
   *)
 
   TSQLCache = TDictionary<string, string>;
@@ -78,51 +91,118 @@ begin
   Result.FSQL := ASQL;
 end;
 
+function IsTagNameChar(C: Char): Boolean;
+begin
+  Result := not ((C = ' ') or (C = #9) or (C = #10) or (C = #13) or
+    (C = '[') or (C = ']') or (C = '{') or (C = '}'));
+end;
+
+procedure SkipSpaces(const S: string; var I: Integer);
+begin
+  while (I <= Length(S)) and (S[I] = ' ') do
+    Inc(I);
+end;
+
+// S[AStart] é '['. Abertura: [ nome {]; fechamento: [} nome ]; espaços
+// opcionais em volta do nome. AName = '' casa com qualquer nome. Quando casa,
+// AEnd é o índice do último caractere do marcador (o seu ']').
+function MatchMarker(const S, AName: string; AOpening: Boolean;
+  AStart: Integer; out AEnd: Integer): Boolean;
+var
+  J, LNameStart: Integer;
+begin
+  Result := False;
+  AEnd := 0;
+  J := AStart + 1;
+  if not AOpening then
+  begin
+    if (J > Length(S)) or (S[J] <> '}') then Exit;
+    Inc(J);
+  end;
+  SkipSpaces(S, J);
+  if AName <> '' then
+  begin
+    if Copy(S, J, Length(AName)) <> AName then Exit;
+    Inc(J, Length(AName));
+  end
+  else
+  begin
+    LNameStart := J;
+    while (J <= Length(S)) and IsTagNameChar(S[J]) do
+      Inc(J);
+    if J = LNameStart then Exit;
+  end;
+  SkipSpaces(S, J);
+  if AOpening then
+  begin
+    if (J >= Length(S)) or (S[J] <> '{') or (S[J + 1] <> ']') then Exit;
+    Inc(J);
+  end
+  else if (J > Length(S)) or (S[J] <> ']') then
+    Exit;
+  AEnd := J;
+  Result := True;
+end;
+
+// Primeiro marcador em AFrom ou depois; AStart = 0 quando não há nenhum.
+function FindMarker(const S, AName: string; AOpening: Boolean; AFrom: Integer;
+  out AStart, AEnd: Integer): Boolean;
+begin
+  AStart := PosEx('[', S, AFrom);
+  while AStart > 0 do
+  begin
+    if MatchMarker(S, AName, AOpening, AStart, AEnd) then
+      Exit(True);
+    AStart := PosEx('[', S, AStart + 1);
+  end;
+  AEnd := 0;
+  Result := False;
+end;
+
 function TSQLResult.ProcessTag(const ATag: string; Keep: Boolean): TSQLResult;
 var
-  Prefix, EndTag: string;
-  P1, P2, P1Len: Integer;
-
-  function FindStartTag: Integer;
-  var
-    I, J: Integer;
-  begin
-    Result := 0;
-    P1Len  := 0;
-    I := Pos(Prefix, FSQL);
-    while I > 0 do
-    begin
-      J := I + Length(Prefix);
-      while (J <= Length(FSQL)) and (FSQL[J] = ' ') do
-        Inc(J);
-      if (J < Length(FSQL)) and (FSQL[J] = '{') and (FSQL[J + 1] = ']') then
-      begin
-        P1Len  := (J + 1) - I + 1;
-        Result := I;
-        Exit;
-      end;
-      I := PosEx(Prefix, FSQL, I + 1);
-    end;
-  end;
-
+  LFrom, LOpenStart, LOpenEnd, LCloseStart, LCloseEnd, LNextStart, LNextEnd: Integer;
 begin
-  Prefix := '[' + ATag;
-  EndTag := '[} ' + ATag + ']';
+  if ATag = '' then
+    raise ESQLLoaderException.Create('ProcessTag: o nome da tag é obrigatório');
 
+  // Tudo antes de LFrom já foi processado e não tem marcador de ATag.
+  LFrom := 1;
   while True do
   begin
-    P1 := FindStartTag;
-    P2 := Pos(EndTag, FSQL);
+    if not FindMarker(FSQL, ATag, True, LFrom, LOpenStart, LOpenEnd) then
+    begin
+      if FindMarker(FSQL, ATag, False, LFrom, LCloseStart, LCloseEnd) then
+        raise ESQLLoaderException.CreateFmt(
+          'Tag SQL %s: marcador de fechamento sem abertura antes dele', [ATag]);
+      Break;
+    end;
 
-    if (P1 = 0) or (P2 = 0) then Break;
+    if FindMarker(FSQL, ATag, False, LFrom, LCloseStart, LCloseEnd) and
+       (LCloseStart < LOpenStart) then
+      raise ESQLLoaderException.CreateFmt(
+        'Tag SQL %s: marcador de fechamento sem abertura antes dele', [ATag]);
+
+    if not FindMarker(FSQL, ATag, False, LOpenEnd + 1, LCloseStart, LCloseEnd) then
+      raise ESQLLoaderException.CreateFmt(
+        'Tag SQL %s: marcador de abertura sem fechamento depois dele', [ATag]);
+
+    if FindMarker(FSQL, ATag, True, LOpenEnd + 1, LNextStart, LNextEnd) and
+       (LNextStart < LCloseStart) then
+      raise ESQLLoaderException.CreateFmt(
+        'Tag SQL %s: um bloco desta tag está aninhado em outro', [ATag]);
 
     if Keep then
     begin
-      Delete(FSQL, P2, Length(EndTag));
-      Delete(FSQL, P1, P1Len);
+      Delete(FSQL, LCloseStart, LCloseEnd - LCloseStart + 1);
+      Delete(FSQL, LOpenStart, LOpenEnd - LOpenStart + 1);
+      LFrom := LCloseStart - (LOpenEnd - LOpenStart + 1);
     end
     else
-      Delete(FSQL, P1, (P2 + Length(EndTag)) - P1);
+    begin
+      Delete(FSQL, LOpenStart, LCloseEnd - LOpenStart + 1);
+      LFrom := LOpenStart;
+    end;
   end;
   Result := Self;
 end;
@@ -152,37 +232,20 @@ end;
 
 function TSQLResult.GetSQL: string;
 var
-  P1, P2: Integer;
+  LStart, LEnd: Integer;
 begin
   ProcessTag('COMMENTS', False);
 
   Result := FSQL;
 
-  while True do
-  begin
-    P2 := Pos(' {]', Result);
-    if P2 = 0 then Break;
+  // Marcadores de tags que ninguém processou: some o marcador, fica o conteúdo
+  LStart := 1;
+  while FindMarker(Result, '', True, LStart, LStart, LEnd) do
+    Delete(Result, LStart, LEnd - LStart + 1);
 
-    P1 := P2;
-    while (P1 > 1) and (Result[P1] <> '[') do
-      Dec(P1);
-
-    if Result[P1] = '[' then
-      Delete(Result, P1, (P2 + 3) - P1);
-  end;
-
-  while True do
-  begin
-    P1 := Pos('[} ', Result);
-    if P1 = 0 then Break;
-
-    P2 := P1;
-    while (P2 < Length(Result)) and (Result[P2] <> ']') do
-      Inc(P2);
-
-    if Result[P2] = ']' then
-      Delete(Result, P1, (P2 - P1) + 1);
-  end;
+  LStart := 1;
+  while FindMarker(Result, '', False, LStart, LStart, LEnd) do
+    Delete(Result, LStart, LEnd - LStart + 1);
 end;
 
 { TSQLLoader }

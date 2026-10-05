@@ -348,7 +348,11 @@ RETURNING ID, STATUS, OBSERVACAO, DATA_ENTREGA
   INSERT, por exemplo — e um único `ProcessTag('TAG', ADto.Campo.HasValue)` ativa/desativa todas
   as ocorrências ao mesmo tempo. É assim que se evita `if`/concatenação manual de string para
   montar SQL condicional em Delphi: a decisão fica inteira na chamada a `ProcessTag`, no
-  Repository, nunca espalhada pelo SQL ou reconstruída campo a campo
+  Repository, nunca espalhada pelo SQL ou reconstruída campo a campo.
+  Espaços em volta do nome são opcionais nos dois marcadores (`[TAG{]`, `[TAG {]`, `[}TAG]`,
+  `[} TAG]`). Bloco malformado (fechamento sem abertura, abertura sem fechamento, bloco aninhado
+  na mesma tag) faz o `ProcessTag` lançar `ESQLLoaderException` com o nome da tag — nunca
+  "conserte" isso mexendo no Repository, o erro está no `.sql`
 - Parâmetros nomeados `:STATUS` — passados via `LQuery.Params.Strings['STATUS']`; para campos
   opcionais, `LQuery.Params.OptStrings['OBSERVACAO'] := ADto.Observacao` (ou `OptNullXxx` para
   `IOptNullXxx`) — o parâmetro já resolve `HasValue`/`IsNull` por dentro, sem checagem prévia

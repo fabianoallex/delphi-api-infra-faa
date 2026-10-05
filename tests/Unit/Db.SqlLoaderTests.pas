@@ -43,6 +43,39 @@ type
 
     { ApplyFilter: remove o bloco quando HasValue=False }
     [Test] procedure Test_ApplyFilter_SemValor;
+
+    // Portados de pascal-db-faa 0.10.0 (16d1649): marcadores com espaços
+    // opcionais nos dois lados, pareamento e erro para bloco malformado.
+
+    (* ProcessTag: o fechamento aceita nenhum ou vários espaços, como a
+       abertura: [}FILTRO], [}   FILTRO ] *)
+    [Test] procedure Test_ProcessTag_EspacosNoFechamento_False;
+    [Test] procedure Test_ProcessTag_EspacosNoFechamento_True;
+
+    (* ProcessTag: espaços depois do colchete de abertura: [ FILTRO{] *)
+    [Test] procedure Test_ProcessTag_EspacoAposColcheteDeAbertura;
+
+    { ProcessTag: uma tag cujo nome começa com o de outra não é tocada }
+    [Test] procedure Test_ProcessTag_TagDeNomeMaiorIntacta;
+
+    { ProcessTag(False): remove cada bloco, nunca o SQL entre dois blocos }
+    [Test] procedure Test_ProcessTag_MantemSqlEntreBlocos;
+
+    { GetSQL: marcadores que sobraram saem com qualquer espaçamento }
+    [Test] procedure Test_GetSQL_LimpaTagsResiduo_QualquerEspacamento;
+
+    { ProcessTag: fechamento antes de qualquer abertura lança exceção (antes entrava em laço infinito) }
+    [Test] procedure Test_ProcessTag_FechamentoAntesDaAbertura_Lanca;
+
+    { ProcessTag: abertura sem fechamento lança exceção }
+    [Test] procedure Test_ProcessTag_SemFechamento_Lanca;
+
+    { ProcessTag: bloco aninhado em outro da mesma tag lança exceção }
+    [Test] procedure Test_ProcessTag_Aninhado_Lanca;
+
+    (* Caso real (api-test, PRODUTO.UPDATE.sql): "[NOME{] , NOME = :NOME [}NOME]"
+       deixava as chaves no SQL e o FireDAC respondia com o erro -307 *)
+    [Test] procedure Test_ProcessTag_UpdateSemEspacos_RemoveMarcadores;
   end;
 
 implementation
@@ -214,6 +247,101 @@ begin
     Trim(LResult),
     'ApplyFilter(False) deve remover o bloco FILTRO'
   );
+end;
+
+// Mensagem da ESQLLoaderException que o ProcessTag lançou, ou '' se nenhuma.
+function ProcessTagError(const ASql, ATag: string; AKeep: Boolean): string;
+begin
+  Result := '';
+  try
+    TSQLResult.From(ASql).ProcessTag(ATag, AKeep);
+  except
+    on E: ESQLLoaderException do
+      Result := E.Message;
+  end;
+end;
+
+procedure TSQLLoaderTests.Test_ProcessTag_EspacosNoFechamento_False;
+begin
+  Assert.AreEqual('W  X  Y',
+    TSQLResult.From('W [FILTRO {]A[}FILTRO] X [FILTRO {]B[}   FILTRO ] Y')
+      .ProcessTag('FILTRO', False).SQL,
+    'ProcessTag(False) deve reconhecer fechamentos sem espaço ou com vários');
+end;
+
+procedure TSQLLoaderTests.Test_ProcessTag_EspacosNoFechamento_True;
+begin
+  Assert.AreEqual('W A X B Y',
+    TSQLResult.From('W [FILTRO {]A[}FILTRO] X [FILTRO {]B[}   FILTRO ] Y')
+      .ProcessTag('FILTRO', True).SQL,
+    'ProcessTag(True) deve remover fechamentos sem espaço ou com vários');
+end;
+
+procedure TSQLLoaderTests.Test_ProcessTag_EspacoAposColcheteDeAbertura;
+begin
+  Assert.AreEqual('W A Y',
+    TSQLResult.From('W [ FILTRO{]A[} FILTRO] Y').ProcessTag('FILTRO', True).SQL,
+    'ProcessTag deve aceitar espaços entre [ e o nome da tag');
+end;
+
+procedure TSQLLoaderTests.Test_ProcessTag_TagDeNomeMaiorIntacta;
+begin
+  Assert.AreEqual('W A Y',
+    TSQLResult.From('W [FILTRO_X {]A[} FILTRO_X] Y').ProcessTag('FILTRO', False).SQL,
+    'ProcessTag(FILTRO) não pode mexer num bloco FILTRO_X');
+end;
+
+procedure TSQLLoaderTests.Test_ProcessTag_MantemSqlEntreBlocos;
+begin
+  Assert.AreEqual('W  X  Y',
+    TSQLResult.From('W [F {]A[}F] X [F {]B[} F] Y').ProcessTag('F', False).SQL,
+    'ProcessTag(False) deve manter o SQL entre dois blocos');
+end;
+
+procedure TSQLLoaderTests.Test_GetSQL_LimpaTagsResiduo_QualquerEspacamento;
+begin
+  Assert.AreEqual('W A X B Y',
+    TSQLResult.From('W [FILTRO{]A[}FILTRO] X [ OUTRA  {]B[}  OUTRA ] Y').SQL,
+    'GetSQL deve remover marcadores que sobraram, com qualquer espaçamento');
+end;
+
+procedure TSQLLoaderTests.Test_ProcessTag_FechamentoAntesDaAbertura_Lanca;
+var
+  LMessage: string;
+begin
+  LMessage := ProcessTagError('W [} F] X [F {]B[} F] Y', 'F', False);
+  Assert.IsTrue(LMessage <> '', 'Fechamento antes de qualquer abertura deve lançar ESQLLoaderException');
+  Assert.IsTrue(Pos('Tag SQL F:', LMessage) > 0, 'A mensagem deve citar a tag');
+end;
+
+procedure TSQLLoaderTests.Test_ProcessTag_SemFechamento_Lanca;
+var
+  LMessage: string;
+begin
+  LMessage := ProcessTagError('W [F {]A[} F] X [F {]B Y', 'F', True);
+  Assert.IsTrue(LMessage <> '', 'Abertura sem fechamento deve lançar ESQLLoaderException');
+  Assert.IsTrue(Pos('sem fechamento', LMessage) > 0, 'A mensagem deve dizer que falta o fechamento');
+end;
+
+procedure TSQLLoaderTests.Test_ProcessTag_Aninhado_Lanca;
+var
+  LMessage: string;
+begin
+  LMessage := ProcessTagError('W [F {]A [F {]B[} F] C[} F] Y', 'F', False);
+  Assert.IsTrue(LMessage <> '', 'Bloco aninhado em outro da mesma tag deve lançar ESQLLoaderException');
+  Assert.IsTrue(Pos('aninhado', LMessage) > 0, 'A mensagem deve dizer que o bloco está aninhado');
+end;
+
+procedure TSQLLoaderTests.Test_ProcessTag_UpdateSemEspacos_RemoveMarcadores;
+const
+  SQL_UPDATE = 'UPDATE PRODUTO SET ID = :ID [NOME{] , NOME = :NOME [}NOME] WHERE ID = :ID';
+begin
+  Assert.AreEqual('UPDATE PRODUTO SET ID = :ID  , NOME = :NOME  WHERE ID = :ID',
+    TSQLResult.From(SQL_UPDATE).ProcessTag('NOME', True).SQL,
+    'ProcessTag(True) deve tirar os dois marcadores, sem deixar chaves para o FireDAC');
+  Assert.AreEqual('UPDATE PRODUTO SET ID = :ID  WHERE ID = :ID',
+    TSQLResult.From(SQL_UPDATE).ProcessTag('NOME', False).SQL,
+    'ProcessTag(False) deve tirar o bloco inteiro');
 end;
 
 initialization

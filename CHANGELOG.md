@@ -4,6 +4,26 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); 
 [SemVer](https://semver.org/lang/pt-BR/). Antes da 0.1.0 a lib não tinha versões: os consumidores
 apontavam o submódulo para um commit.
 
+## [Não lançado]
+
+### Corrigido
+
+- **Tags de SQL** (`Db.SqlLoader`): o marcador de fechamento passa a aceitar espaços opcionais em
+  volta do nome (`[}TAG]`, `[}  TAG ]`), como a abertura já aceitava, e a abertura também aceita
+  espaços depois do `[`. Antes, o fechamento só era reconhecido escrito como `[} TAG]`. Fora disso,
+  `ProcessTag` deixava as marcações no SQL (o FireDAC então falhava com
+  `-307 Escape function name must be not empty`, sem apontar a causa), ou pareava a abertura com o
+  fechamento de outro bloco e apagava o SQL entre eles, ou entrava em laço infinito quando esse
+  fechamento vinha antes da abertura. A limpeza feita ao ler `.SQL` segue a mesma regra (deixava
+  `[TAG{]` para trás). Portado de pascal-db-faa 0.10.0 (`16d1649`). Achado no api-test
+  (`PRODUTO.UPDATE.sql`, `[}NOME]`).
+
+### Mudado
+
+- `ProcessTag` lança `ESQLLoaderException` para bloco malformado da tag: fechamento sem abertura
+  antes, abertura sem fechamento depois, ou bloco aninhado em outro da mesma tag. Antes deixava
+  marcações no SQL, removia o texto errado ou travava.
+
 ## [0.1.0] — 2026-10-05
 
 Primeira versão com tag. Migra os tipos opcionais, o relógio e o cache para a
