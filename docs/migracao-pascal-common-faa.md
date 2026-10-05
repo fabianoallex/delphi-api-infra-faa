@@ -114,8 +114,8 @@ Da raiz do projeto consumidor (nunca de dentro de `infra/`):
 
 | Projeto | Onde | Situação |
 |---|---|---|
-| delphi-api-starter | mesma máquina | `Api.Starter` e `Api.Starter.Svc` (dpr + dproj), `Exemplo.DTOs`, `Exemplo.Repository`, README/CLAUDE.md/AGENTS.md. Pedido para a sessão lá: abaixo |
-| api-test | mesma máquina | infra de maio de 2026: além deste guia, pega todas as mudanças da infra desde então (ex.: `TErrorHandlerMiddleware.New` virou `.Register`) |
+| delphi-api-starter | mesma máquina | **migrado** em 2026-10-05 (`553f9b5`, merge `c91edf3`): infra v0.1.0, `modules/pascal-common-faa` v1.1.1, Win64 habilitado; o pedido abaixo fica como referência |
+| api-test | mesma máquina | **migrado** em 2026-10-05 (`d5718b6`, só local: o repo não tem remote). Além deste guia precisou do Horse 3.3.2 (o ErrorHandler atual usa `THorse.OnError`), `TErrorHandlerMiddleware.New` → `.Register` e `app.ini` → `.env` |
 | retaweb-local | outra máquina (`R:\Fabiano\supermercado\retaweb-local`) | **ainda não migrado**. Seguir os passos acima nos 3 `.dproj` (API + testes unitários + integração, os mesmos que já têm o pre-build do `build_sql_res.bat`). Se ele também usar pascal-db-faa ou amqp algum dia, esta migração é o que evita o conflito de GUIDs |
 
 ## Pedido para a sessão no delphi-api-starter
