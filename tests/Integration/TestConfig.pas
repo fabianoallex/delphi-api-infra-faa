@@ -99,6 +99,13 @@ end;
 
 class function TTestConfig.DetectFirebirdVendorLib: string;
 const
+{$IFDEF WIN64}
+  // Win64 exige a fbclient.dll 64-bit: a de bin\ num Firebird 2.5 de 64-bit.
+  Candidates: array[0..1] of string = (
+    'C:\Program Files\Firebird\Firebird_2_5\bin\fbclient.dll',
+    ''
+  );
+{$ELSE}
   // Win32 (32-bit) exige a fbclient.dll 32-bit; no Firebird 2.5 de 64-bit
   // ela fica na subpasta WOW64. Em instalações 32-bit fica em bin\.
   Candidates: array[0..3] of string = (
@@ -107,6 +114,7 @@ const
     'C:\Program Files (x86)\Firebird\Firebird_2_5\bin\fbclient.dll',
     ''
   );
+{$ENDIF}
 var
   LPath: string;
 begin

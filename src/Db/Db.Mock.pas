@@ -56,7 +56,7 @@ uses
   System.SysUtils,
   System.Variants,
   System.Generics.Collections,
-  Common.Optionals,
+  PascalCommon.Optionals,
   Db.Interfaces,
   Db.SqlLoader;
 

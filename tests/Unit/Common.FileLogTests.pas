@@ -293,7 +293,7 @@ begin
     LContent := TFile.ReadAllText(LPath, TEncoding.UTF8);
     LLines   := LContent.Split([#13#10], TStringSplitOptions.ExcludeEmpty);
 
-    Assert.AreEqual(2, Length(LLines), 'Deveriam existir 2 linhas');
+    Assert.AreEqual(2, Integer(Length(LLines)), 'Deveriam existir 2 linhas');
 
     LHash1 := ExtractLineHash(LLines[0]);
     LHash2 := ExtractLineHash(LLines[1]);

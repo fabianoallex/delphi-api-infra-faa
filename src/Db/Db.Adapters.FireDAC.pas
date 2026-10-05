@@ -15,7 +15,7 @@ uses
   Db.SqlLoader,
   Db.SqlDialect,
   Common.Helpers,
-  Common.Optionals,
+  PascalCommon.Optionals,
   Common.SafeLog;
 
 type

@@ -4,7 +4,7 @@ interface
 
 uses
   System.SysUtils, System.Generics.Collections, System.TypInfo,
-  System.JSON, System.Rtti, System.DateUtils, Common.Optionals;
+  System.JSON, System.Rtti, System.DateUtils, PascalCommon.Optionals;
 
 type
   EJsonMapperException = class(Exception);

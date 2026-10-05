@@ -3,7 +3,7 @@
 interface
 
 uses
-  DUnitX.TestFramework, Common.JsonMapper, Common.Optionals;
+  DUnitX.TestFramework, Common.JsonMapper, PascalCommon.Optionals;
 
 type
   [TestFixture]
@@ -403,7 +403,7 @@ begin
   LLista := TJsonMapper.FromJson<IListaTags>(LJson);
 
   Assert.IsNotNull(LLista);
-  Assert.AreEqual(3, Length(LLista.Tags));
+  Assert.AreEqual(3, Integer(Length(LLista.Tags)));
   Assert.AreEqual('alpha', LLista.Tags[0]);
   Assert.AreEqual('beta', LLista.Tags[1]);
   Assert.AreEqual('gamma', LLista.Tags[2]);
@@ -420,7 +420,7 @@ begin
   LLista := TJsonMapper.FromJson<IListaTags>(LJson);
 
   Assert.IsNotNull(LLista);
-  Assert.AreEqual(3, Length(LLista.Ids));
+  Assert.AreEqual(3, Integer(Length(LLista.Ids)));
   Assert.AreEqual(10, LLista.Ids[0]);
   Assert.AreEqual(20, LLista.Ids[1]);
   Assert.AreEqual(30, LLista.Ids[2]);
@@ -438,7 +438,7 @@ begin
   LLista := TJsonMapper.FromJson<IListaTags>(LJson);
 
   Assert.IsNotNull(LLista);
-  Assert.AreEqual(2, Length(LLista.Cidades));
+  Assert.AreEqual(2, Integer(Length(LLista.Cidades)));
   Assert.IsNotNull(LLista.Cidades[0]);
   Assert.AreEqual('Cuiabï¿½', LLista.Cidades[0].NomeCidade);
   Assert.IsNotNull(LLista.Cidades[1]);

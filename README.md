@@ -9,12 +9,9 @@ O acesso a banco de dados é agnóstico: a camada de abstração (`Db.Interfaces
 ```
 src/
   Common/
-    Common.Optionals.pas      — IOptXxx, INullXxx, IOptNullXxx (9 tipos base)
     Common.JsonMapper.pas     — TJsonMapper: FromJson<I> / ToJson<I> (saída camelCase)
     Common.DTO.Base.pas       — IDTOBase e hierarquia de interfaces/classes base para DTOs
     Common.Helpers.pas        — Helpers de Variant e TParams para Optionals
-    Common.ClockCache.pas     — Cache flyweight thread-safe dos Optional values
-    Common.SystemContext.pas  — TClock e TSleep injetáveis (testabilidade)
     Common.OrderBy.pas        — TOrderBySpec: ordenação segura com whitelist, tiebreaker e DocHint
     Common.Pagination.pas     — TPageMeta, TPageParams: paginação padronizada com WrapJson
     Common.Config.pas         — TAppConfig: leitura de env vars com fallback para .env
@@ -51,7 +48,30 @@ src/
 tests/
   Unit/         — testes unitários (DUnitX) — Infra.UnitTests.dpr
   Integration/  — testes com banco Firebird real — Infra.IntegrationTests.dpr
+external/
+  pascal-common-faa/  — submodule SÓ para os testes desta lib (ver abaixo)
 ```
+
+### Dependência: pascal-common-faa
+
+Os tipos opcionais/anuláveis (`IOptXxx`, `INullXxx`, `IOptNullXxx`, `TOptionals`), o relógio e
+o sleep injetáveis (`TClock`, `TTicker`, `TSleep`) e o cache flyweight (`TClockCache`) vêm da
+[pascal-common-faa](https://github.com/fabianoallex/pascal-common-faa) (1.0.0 ou mais nova):
+units `PascalCommon.Optionals`, `PascalCommon.SystemContext` e `PascalCommon.ClockCache`. Os
+nomes dos tipos são os mesmos que esta lib tinha em `Common.Optionals`, `Common.SystemContext` e
+`Common.ClockCache` (removidas).
+
+**Esta lib não fornece a pascal-common-faa para a aplicação.** O submodule
+`external/pascal-common-faa` existe só para os testes e o CI daqui. A aplicação tem o seu próprio
+submodule da pascal-common-faa e põe o `src` **dele** no search path — é a única cópia do
+processo. Isso importa quando a aplicação também usa outra lib que depende da pascal-common-faa
+(pascal-db-faa, pascal-amqp-faa...): com uma cópia por lib, a aplicação teria dois `IOptString`
+diferentes com o mesmo GUID. Uma versão antiga demais para a build com
+`F1054 delphi-api-infra-faa precisa da pascal-common-faa 1.0.0 ou mais nova` (checagem em
+`Common.DTO.Base` e `Db.Interfaces`).
+
+Atualizando um projeto que usava uma versão anterior a 0.1.0: ver
+[`docs/migracao-pascal-common-faa.md`](docs/migracao-pascal-common-faa.md).
 
 ---
 
@@ -83,6 +103,13 @@ git submodule add https://github.com/fabianoallex/delphi-api-infra-faa infra
 
 Isso cria a pasta `infra/` com todo o código da biblioteca e registra o submodule no `.gitmodules`.
 
+E a pascal-common-faa, como submodule próprio da aplicação (ver "Dependência: pascal-common-faa"):
+
+```bash
+git submodule add https://github.com/fabianoallex/pascal-common-faa modules/pascal-common-faa
+git -C modules/pascal-common-faa checkout v1.1.1
+```
+
 ### Clonar um projeto que já usa este submodule
 
 ```bash
@@ -106,18 +133,21 @@ git commit -m "chore: atualiza infra"
 Adicione ao `DCC_UnitSearchPath` do seu `.dproj`:
 
 ```
-infra\src\Common;infra\src\Db;infra\src\Swagger;infra\src\MCP;infra\src\Middleware;infra\modules\swag-doc\Source
+infra\src\Common;infra\src\Db;infra\src\Swagger;infra\src\MCP;infra\src\Middleware;infra\modules\swag-doc\Source;modules\pascal-common-faa\src
 ```
+
+O último item é a cópia da pascal-common-faa **da aplicação**, nunca
+`infra\external\pascal-common-faa\src`. O clone recursivo (necessário por causa do SwagDoc,
+item 6) também baixa essa pasta de dentro de `infra/`, mas ela é só dos testes da lib: com ela no
+search path, a aplicação volta a ter duas cópias assim que usar outra lib que dependa da
+pascal-common-faa.
 
 ### 2. Referências explícitas no DPR
 
 ```pascal
 uses
-  Common.Optionals     in 'infra\src\Common\Common.Optionals.pas',
   Common.JsonMapper    in 'infra\src\Common\Common.JsonMapper.pas',
   Common.Helpers       in 'infra\src\Common\Common.Helpers.pas',
-  Common.ClockCache    in 'infra\src\Common\Common.ClockCache.pas',
-  Common.SystemContext in 'infra\src\Common\Common.SystemContext.pas',
   Db.Interfaces        in 'infra\src\Db\Db.Interfaces.pas',
   Db.Connection.Pool   in 'infra\src\Db\Db.Connection.Pool.pas',
   Db.SqlLoader         in 'infra\src\Db\Db.SqlLoader.pas',

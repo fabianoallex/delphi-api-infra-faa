@@ -12,8 +12,8 @@ uses
   Db.Interfaces,
   Db.Connection.Pool,
   Db.SqlLoader,
-  Common.SystemContext,
-  Common.Optionals,
+  PascalCommon.SystemContext,
+  PascalCommon.Optionals,
   System.Variants;
 
 type
@@ -34,19 +34,33 @@ type
     procedure Sleep(milliseconds: Cardinal);
   end;
 
-  { TFakeClock }
+  { TFakeTicker
+    Relógio monotônico controlado pelo teste: cada NowMs devolve a próxima
+    leitura enfileirada, ou a padrão quando a fila está vazia. }
 
-  TFakeClock = class(TInterfacedObject, IClock)
+  TFakeTicker = class(TInterfacedObject, ITicker)
   private
-    FTimes: TQueue<TDateTime>;
-    FDefaultTime: TDateTime;
+    FTimes: TQueue<UInt64>;
+    FDefaultMs: UInt64;
   public
     constructor Create;
     destructor Destroy; override;
+    function NowMs: UInt64;
+    procedure EnqueueMs(AMs: UInt64);
+    procedure SetDefaultMs(AMs: UInt64);
+  end;
+
+  { TJumpingClock
+    Relógio de parede que anda uma hora a cada leitura, como se a hora do
+    sistema mudasse entre duas chamadas quaisquer. O pool não pode notar. }
+
+  TJumpingClock = class(TInterfacedObject, IClock)
+  private
+    FNow: TDateTime;
+  public
+    constructor Create;
     function Now: TDateTime;
     function Date: TDateTime;
-    procedure EnqueueTime(ADateTime: TDateTime);
-    procedure SetDefaultTime(ADateTime: TDateTime);
   end;
 
   { TFakeDBConnection }
@@ -246,6 +260,7 @@ type
     [Test] procedure Test_Pool_TransacoesDiferentes_RegistraComandosSeparados;
     [Test] procedure Test_Pool_ConexaoInativa120s;
     [Test] procedure Test_Pool_ConexaoInativaFalha;
+    [Test] procedure Test_Pool_MudancaDoRelogio_NaoEnvelheceConexoes;
     [Test] procedure Test_Pool_Concorrencia;
     [Test] procedure Test_Pool_IdleTimeout_Desligado_NaoEvictaNada;
     [Test] procedure Test_Pool_IdleTimeout_EvictaSoOsMaisAntigos;
@@ -281,41 +296,63 @@ procedure TFakeSleep.Sleep(milliseconds: Cardinal);
 begin
 end;
 
-{ TFakeClock }
+{ TFakeTicker }
 
-constructor TFakeClock.Create;
+constructor TFakeTicker.Create;
 begin
-  FTimes := TQueue<TDateTime>.Create;
-  FDefaultTime := 0;
+  FTimes := TQueue<UInt64>.Create;
+  FDefaultMs := 0;
 end;
 
-destructor TFakeClock.Destroy;
+destructor TFakeTicker.Destroy;
 begin
   FTimes.Free;
   inherited Destroy;
 end;
 
-function TFakeClock.Now: TDateTime;
+function TFakeTicker.NowMs: UInt64;
 begin
   if FTimes.Count > 0 then
     Result := FTimes.Dequeue
   else
-    Result := FDefaultTime;
+    Result := FDefaultMs;
 end;
 
-function TFakeClock.Date: TDateTime;
+procedure TFakeTicker.EnqueueMs(AMs: UInt64);
+begin
+  FTimes.Enqueue(AMs);
+end;
+
+procedure TFakeTicker.SetDefaultMs(AMs: UInt64);
+begin
+  FDefaultMs := AMs;
+end;
+
+{ TJumpingClock }
+
+constructor TJumpingClock.Create;
+begin
+  inherited Create;
+  FNow := EncodeDate(2025, 12, 28) + EncodeTime(11, 44, 18, 0);
+end;
+
+function TJumpingClock.Now: TDateTime;
+begin
+  FNow := FNow + (1 / 24);
+  Result := FNow;
+end;
+
+function TJumpingClock.Date: TDateTime;
 begin
   Result := Trunc(Now);
 end;
 
-procedure TFakeClock.EnqueueTime(ADateTime: TDateTime);
+// Leitura do ticker ASegundos depois de uma origem arbitrária (T0), a unidade
+// em que os testes raciocinam. T0 não é 0 para que "antes de T0" ainda seja
+// uma leitura válida.
+function T0Plus(ASegundos: Integer): UInt64;
 begin
-  FTimes.Enqueue(ADateTime);
-end;
-
-procedure TFakeClock.SetDefaultTime(ADateTime: TDateTime);
-begin
-  FDefaultTime := ADateTime;
+  Result := UInt64(1000000) + UInt64(ASegundos) * 1000;
 end;
 
 { TFakeDBConnection }
@@ -814,7 +851,7 @@ begin
     Assert.AreEqual(0, LPool.GetActiveConnections,
       'FActiveConnections deve voltar a 0 após cada falha (sem vazamento de contagem)');
 
-    Assert.AreEqual(3, LEvents.Count,
+    Assert.AreEqual(3, Integer(LEvents.Count),
       'Cada falha do ramp-up inicial deve gerar 1 evento pekConnectionDiscarded');
     for I := 0 to LEvents.Count - 1 do
     begin
@@ -1087,17 +1124,15 @@ procedure TPoolTests.Test_Pool_ConexaoInativa120s;
     LMockFactory: TDBFactoryMock;
     LPool: IDBConnectionPool;
     LConn: IDBConnection;
-    LClock: TFakeClock;
-    BaseTime: TDateTime;
+    LTicker: TFakeTicker;
   begin
-    BaseTime := StrToDateTime('28/12/2025 11:44:18');
 
-    LClock := TFakeClock.Create;
-    LClock.SetDefaultTime(BaseTime);
-    LClock.EnqueueTime(BaseTime);                                // liberação em CreateInitialConnections
-    LClock.EnqueueTime(BaseTime + (ASegundos / 86400));          // verificação em AcquireConnection
+    LTicker := TFakeTicker.Create;
+    LTicker.SetDefaultMs(T0Plus(0));
+    LTicker.EnqueueMs(T0Plus(0));                                // liberação em CreateInitialConnections
+    LTicker.EnqueueMs(T0Plus(ASegundos));          // verificação em AcquireConnection
 
-    TClock.SetClock(LClock);
+    TTicker.SetTicker(LTicker);
     try
       LConfig := TConnectionPoolConfig.Create;
       LConfig.IniConnections := 1;
@@ -1107,14 +1142,14 @@ procedure TPoolTests.Test_Pool_ConexaoInativa120s;
       LFactory := LMockFactory;
       LPool := TConnectionPool.Create(LFactory, LConfig);
 
-      Assert.AreEqual(0, LMockFactory.TestedConnections.Count,
+      Assert.AreEqual(0, Integer(LMockFactory.TestedConnections.Count),
         'Antes do acquire não deve haver conexões testadas');
 
       LConn := LPool.AcquireConnection;
 
-      Assert.AreEqual(ATestedCountEsperado, LMockFactory.TestedConnections.Count, AMensagem);
+      Assert.AreEqual(ATestedCountEsperado, Integer(LMockFactory.TestedConnections.Count), AMensagem);
     finally
-      TClock.Reset;
+      TTicker.Reset;
     end;
   end;
 
@@ -1132,21 +1167,19 @@ var
   LMockFactory: TDBFactoryMock;
   LPool: IDBConnectionPool;
   LConn: IDBConnection;
-  LClock: TFakeClock;
-  BaseTime: TDateTime;
+  LTicker: TFakeTicker;
 begin
-  BaseTime := StrToDateTime('28/12/2025 11:44:18');
 
-  LClock := TFakeClock.Create;
-  LClock.SetDefaultTime(BaseTime);
+  LTicker := TFakeTicker.Create;
+  LTicker.SetDefaultMs(T0Plus(0));
   // Liberações durante CreateInitialConnections (2 conexões, em ordem de índice)
-  LClock.EnqueueTime(BaseTime);                      // LastRelease conn1
-  LClock.EnqueueTime(BaseTime + (50 / 86400));       // LastRelease conn2
+  LTicker.EnqueueMs(T0Plus(0));                      // LastRelease conn1
+  LTicker.EnqueueMs(T0Plus(50));       // LastRelease conn2
   // Verificações em AcquireConnection
-  LClock.EnqueueTime(BaseTime + (121 / 86400));      // 121s p/ conn1 → testa → falha → remove
-  LClock.EnqueueTime(BaseTime + (130 / 86400));      // 80s p/ conn2 → não testa → usa
+  LTicker.EnqueueMs(T0Plus(121));      // 121s p/ conn1 → testa → falha → remove
+  LTicker.EnqueueMs(T0Plus(130));      // 80s p/ conn2 → não testa → usa
 
-  TClock.SetClock(LClock);
+  TTicker.SetTicker(LTicker);
   try
     LConfig := TConnectionPoolConfig.Create;
     LConfig.IniConnections := 2;
@@ -1168,7 +1201,51 @@ begin
 
     Assert.IsNotNull(LConn, 'Deve retornar a segunda conexão (saudável)');
   finally
+    TTicker.Reset;
+  end;
+end;
+
+procedure TPoolTests.Test_Pool_MudancaDoRelogio_NaoEnvelheceConexoes;
+var
+  LConfig: IConnectionPoolConfig;
+  LFactory: IDBFactory;
+  LMockFactory: TDBFactoryMock;
+  LPoolIntf: IDBConnectionPool; // ver comentário em Test_Pool_IdleTimeout_Desligado_NaoEvictaNada
+  LPool: TConnectionPool;
+  LConn: IDBConnection;
+  LTicker: TFakeTicker;
+begin
+  // O relógio de parede anda uma hora a cada leitura; o monotônico fica
+  // parado. Com a ociosidade medida pelo relógio de parede (antes da
+  // migração para a pascal-common-faa), o acquire abaixo testava a conexão
+  // ("ociosa" há uma hora) e a varredura a fechava.
+  LTicker := TFakeTicker.Create;
+  LTicker.SetDefaultMs(T0Plus(0));
+  TTicker.SetTicker(LTicker);
+  TClock.SetClock(TJumpingClock.Create);
+  try
+    LConfig := TConnectionPoolConfig.Create;
+    LConfig.IniConnections := 0;
+    LConfig.MaxConnections := 10;
+
+    LMockFactory := TDBFactoryMock.Create;
+    LFactory := LMockFactory;
+    LPoolIntf := TConnectionPool.Create(LFactory, LConfig);
+    LPool := LPoolIntf as TConnectionPool;
+
+    LConn := LPoolIntf.AcquireConnection;
+    LConn := nil;
+    LConn := LPoolIntf.AcquireConnection;
+    Assert.AreEqual(0, Integer(LMockFactory.TestedConnections.Count),
+      'Mudança da hora do sistema não pode disparar o teste de vida da conexão');
+    LConn := nil;
+
+    LPool.SweepIdleConnections(60);
+    Assert.AreEqual(1, LPoolIntf.GetPoolSize,
+      'Mudança da hora do sistema não pode fazer a varredura fechar conexões');
+  finally
     TClock.Reset;
+    TTicker.Reset;
   end;
 end;
 
@@ -1278,14 +1355,12 @@ var
   // (que não faz parte de IDBConnectionPool) — nunca dar Free nela.
   LPoolIntf: IDBConnectionPool;
   LPool: TConnectionPool;
-  LClock: TFakeClock;
+  LTicker: TFakeTicker;
   LConn1, LConn2: IDBConnection;
-  BaseTime: TDateTime;
 begin
-  BaseTime := StrToDateTime('28/12/2025 11:44:18');
-  LClock := TFakeClock.Create;
-  LClock.SetDefaultTime(BaseTime);
-  TClock.SetClock(LClock);
+  LTicker := TFakeTicker.Create;
+  LTicker.SetDefaultMs(T0Plus(0));
+  TTicker.SetTicker(LTicker);
   try
     // IdleTimeoutSeconds não configurado -> fica 0 = desligado (padrão)
     LConfig := TConnectionPoolConfig.Create;
@@ -1303,7 +1378,7 @@ begin
 
     Assert.AreEqual(2, LPoolIntf.GetPoolSize, 'Pré-condição: 2 conexões ociosas');
 
-    LClock.SetDefaultTime(BaseTime + (100000 / 86400)); // bem além de qualquer limite razoável
+    LTicker.SetDefaultMs(T0Plus(100000)); // bem além de qualquer limite razoável
     LPool.SweepIdleConnections;
 
     Assert.AreEqual(2, LPoolIntf.GetPoolSize,
@@ -1311,7 +1386,7 @@ begin
     Assert.AreEqual(2, LPoolIntf.GetActiveConnections,
       'IdleTimeoutSeconds=0 (padrão): contagem de ativas não deve mudar');
   finally
-    TClock.Reset;
+    TTicker.Reset;
   end;
 end;
 
@@ -1321,18 +1396,16 @@ var
   LFactory: IDBFactory;
   LPoolIntf: IDBConnectionPool; // ver comentário em Test_Pool_IdleTimeout_Desligado_NaoEvictaNada
   LPool: TConnectionPool;
-  LClock: TFakeClock;
+  LTicker: TFakeTicker;
   LConn1, LConn2, LConn3: IDBConnection;
-  BaseTime: TDateTime;
 begin
-  BaseTime := StrToDateTime('28/12/2025 11:44:18');
-  LClock := TFakeClock.Create;
-  LClock.SetDefaultTime(BaseTime);
-  TClock.SetClock(LClock);
+  LTicker := TFakeTicker.Create;
+  LTicker.SetDefaultMs(T0Plus(0));
+  TTicker.SetTicker(LTicker);
   try
     // IdleTimeoutSeconds fica 0 (padrão) de propósito: assim NENHUMA thread
     // de varredura é criada — o teste chama SweepIdleConnections(60)
-    // diretamente, na thread do próprio teste, com TFakeClock. Determinístico,
+    // diretamente, na thread do próprio teste, com TFakeTicker. Determinístico,
     // sem concorrência nenhuma envolvida.
     LConfig := TConnectionPoolConfig.Create;
     LConfig.IniConnections := 0;
@@ -1347,16 +1420,16 @@ begin
     LConn3 := LPoolIntf.AcquireConnection;
     Assert.AreEqual(3, LPoolIntf.GetActiveConnections, 'Pré-condição: 3 conexões ativas');
 
-    LClock.SetDefaultTime(BaseTime);
+    LTicker.SetDefaultMs(T0Plus(0));
     LConn1 := nil; // LastRelease = T0        (65s de idade no sweep abaixo)
-    LClock.SetDefaultTime(BaseTime + (10 / 86400));
+    LTicker.SetDefaultMs(T0Plus(10));
     LConn2 := nil; // LastRelease = T0+10s     (55s de idade — NÃO deve sair)
-    LClock.SetDefaultTime(BaseTime + (20 / 86400));
+    LTicker.SetDefaultMs(T0Plus(20));
     LConn3 := nil; // LastRelease = T0+20s     (45s de idade — NÃO deve sair)
 
     Assert.AreEqual(3, LPoolIntf.GetPoolSize, 'Pré-condição: 3 conexões ociosas no pool');
 
-    LClock.SetDefaultTime(BaseTime + (65 / 86400)); // "agora" = T0+65s
+    LTicker.SetDefaultMs(T0Plus(65)); // "agora" = T0+65s
     LPool.SweepIdleConnections(60);
 
     Assert.AreEqual(2, LPoolIntf.GetPoolSize,
@@ -1364,7 +1437,7 @@ begin
     Assert.AreEqual(2, LPoolIntf.GetActiveConnections,
       'FActiveConnections deve acompanhar a remoção');
   finally
-    TClock.Reset;
+    TTicker.Reset;
   end;
 end;
 
@@ -1374,14 +1447,12 @@ var
   LFactory: IDBFactory;
   LPoolIntf: IDBConnectionPool; // ver comentário em Test_Pool_IdleTimeout_Desligado_NaoEvictaNada
   LPool: TConnectionPool;
-  LClock: TFakeClock;
+  LTicker: TFakeTicker;
   LConn1, LConn2, LConn3: IDBConnection;
-  BaseTime: TDateTime;
 begin
-  BaseTime := StrToDateTime('28/12/2025 11:44:18');
-  LClock := TFakeClock.Create;
-  LClock.SetDefaultTime(BaseTime);
-  TClock.SetClock(LClock);
+  LTicker := TFakeTicker.Create;
+  LTicker.SetDefaultMs(T0Plus(0));
+  TTicker.SetTicker(LTicker);
   try
     // IdleTimeoutSeconds fica 0 (padrão) de propósito — ver comentário no
     // teste Test_Pool_IdleTimeout_EvictaSoOsMaisAntigos.
@@ -1393,7 +1464,7 @@ begin
     LPoolIntf := TConnectionPool.Create(LFactory, LConfig);
     LPool := LPoolIntf as TConnectionPool;
 
-    // CreateInitialConnections já deixou 2 ociosas (LastRelease = BaseTime).
+    // CreateInitialConnections já deixou 2 ociosas (LastRelease = T0).
     // Esvazia as 2 (reuso) e força a criação de uma 3ª nova, depois libera
     // as 3 — pra ter 3 conexões ociosas de verdade, todas velhas o bastante.
     LConn1 := LPoolIntf.AcquireConnection; // reusa uma das 2 do pool
@@ -1405,7 +1476,7 @@ begin
     Assert.AreEqual(3, LPoolIntf.GetPoolSize, 'Pré-condição: 3 conexões ociosas');
 
     // Todas MUITO além do limite de 60s — sem piso, evictaria tudo.
-    LClock.SetDefaultTime(BaseTime + (100000 / 86400));
+    LTicker.SetDefaultMs(T0Plus(100000));
     LPool.SweepIdleConnections(60);
 
     Assert.AreEqual(2, LPoolIntf.GetPoolSize,
@@ -1413,7 +1484,7 @@ begin
     Assert.AreEqual(2, LPoolIntf.GetActiveConnections,
       'FActiveConnections deve parar no piso também');
   finally
-    TClock.Reset;
+    TTicker.Reset;
   end;
 end;
 
@@ -1456,7 +1527,7 @@ var
   LPool: TConnectionPool;
   LStopwatch: TStopwatch;
 begin
-  // Sem TFakeClock/TFakeSleep aqui de propósito: quer a thread de varredura
+  // Sem TFakeTicker/TFakeSleep aqui de propósito: quer a thread de varredura
   // REAL rodando, pra provar que Destroy não trava nem AV mesmo com ela viva.
   LConfig := TConnectionPoolConfig.Create;
   LConfig.IniConnections := 1;
@@ -1557,12 +1628,12 @@ begin
         LEvents.Add(AEvent);
       end);
 
-    Assert.AreEqual(0, LEvents.Count,
+    Assert.AreEqual(0, Integer(LEvents.Count),
       'Sem IniConnections, a construção do pool não deve disparar eventos');
 
     LConn := LPool.AcquireConnection;
 
-    Assert.AreEqual(1, LEvents.Count,
+    Assert.AreEqual(1, Integer(LEvents.Count),
       'Criar 1 conexão física deve disparar exatamente 1 evento pekConnectionCreated');
     Assert.AreEqual<TPoolEventKind>(pekConnectionCreated, LEvents[0].Kind);
     Assert.AreEqual(1, LEvents[0].ActiveConnections);
@@ -1581,23 +1652,21 @@ var
   LMockFactory: TDBFactoryMock;
   LPool: IDBConnectionPool;
   LConn: IDBConnection;
-  LClock: TFakeClock;
+  LTicker: TFakeTicker;
   LEvents: TList<TPoolEvent>;
-  BaseTime: TDateTime;
 begin
   // Mesmo cenário de Test_Pool_ConexaoInativaFalha: 2 conexões no ramp-up,
   // a 1ª falha no teste de vivacidade (>=120s ociosa) e é descartada, a 2ª
   // é reaproveitada.
-  BaseTime := StrToDateTime('28/12/2025 11:44:18');
 
-  LClock := TFakeClock.Create;
-  LClock.SetDefaultTime(BaseTime);
-  LClock.EnqueueTime(BaseTime);                      // LastRelease conn1
-  LClock.EnqueueTime(BaseTime + (50 / 86400));       // LastRelease conn2
-  LClock.EnqueueTime(BaseTime + (121 / 86400));      // 121s p/ conn1 → testa → falha → remove
-  LClock.EnqueueTime(BaseTime + (130 / 86400));      // 80s p/ conn2 → não testa → usa
+  LTicker := TFakeTicker.Create;
+  LTicker.SetDefaultMs(T0Plus(0));
+  LTicker.EnqueueMs(T0Plus(0));                      // LastRelease conn1
+  LTicker.EnqueueMs(T0Plus(50));       // LastRelease conn2
+  LTicker.EnqueueMs(T0Plus(121));      // 121s p/ conn1 → testa → falha → remove
+  LTicker.EnqueueMs(T0Plus(130));      // 80s p/ conn2 → não testa → usa
 
-  TClock.SetClock(LClock);
+  TTicker.SetTicker(LTicker);
   LEvents := TList<TPoolEvent>.Create;
   try
     LConfig := TConnectionPoolConfig.Create;
@@ -1617,7 +1686,7 @@ begin
     LMockFactory.SimulateTestConnectionFail := True;
     LConn := LPool.AcquireConnection;
 
-    Assert.AreEqual(1, LEvents.Count,
+    Assert.AreEqual(1, Integer(LEvents.Count),
       'O descarte da conexão morta deve disparar exatamente 1 evento pekConnectionDiscarded');
     Assert.AreEqual<TPoolEventKind>(pekConnectionDiscarded, LEvents[0].Kind);
     Assert.AreEqual<TPoolDiscardReason>(pdrStaleCheckFailed, LEvents[0].DiscardReason);
@@ -1627,7 +1696,7 @@ begin
     Assert.AreEqual(Int64(2), LPool.GetSnapshot.TotalCreated);
     Assert.AreEqual(Int64(1), LPool.GetSnapshot.TotalDiscarded);
   finally
-    TClock.Reset;
+    TTicker.Reset;
     LEvents.Free;
   end;
 end;
@@ -1684,17 +1753,15 @@ var
   LFactory: IDBFactory;
   LPoolIntf: IDBConnectionPool; // ver comentário em Test_Pool_IdleTimeout_Desligado_NaoEvictaNada
   LPool: TConnectionPool;
-  LClock: TFakeClock;
+  LTicker: TFakeTicker;
   LConn1, LConn2, LConn3: IDBConnection;
   LEvents: TList<TPoolEvent>;
-  BaseTime: TDateTime;
 begin
   // Mesmo cenário de Test_Pool_IdleTimeout_EvictaSoOsMaisAntigos: só a
   // conexão liberada há mais tempo deve ser fechada pela varredura.
-  BaseTime := StrToDateTime('28/12/2025 11:44:18');
-  LClock := TFakeClock.Create;
-  LClock.SetDefaultTime(BaseTime);
-  TClock.SetClock(LClock);
+  LTicker := TFakeTicker.Create;
+  LTicker.SetDefaultMs(T0Plus(0));
+  TTicker.SetTicker(LTicker);
   LEvents := TList<TPoolEvent>.Create;
   try
     LConfig := TConnectionPoolConfig.Create;
@@ -1713,19 +1780,19 @@ begin
     LConn2 := LPoolIntf.AcquireConnection;
     LConn3 := LPoolIntf.AcquireConnection;
 
-    LClock.SetDefaultTime(BaseTime);
+    LTicker.SetDefaultMs(T0Plus(0));
     LConn1 := nil; // LastRelease = T0        (65s de idade no sweep abaixo)
-    LClock.SetDefaultTime(BaseTime + (10 / 86400));
+    LTicker.SetDefaultMs(T0Plus(10));
     LConn2 := nil; // LastRelease = T0+10s     (55s de idade — NÃO deve sair)
-    LClock.SetDefaultTime(BaseTime + (20 / 86400));
+    LTicker.SetDefaultMs(T0Plus(20));
     LConn3 := nil; // LastRelease = T0+20s     (45s de idade — NÃO deve sair)
 
     LEvents.Clear; // descarta os 3 pekConnectionCreated do crescimento acima
 
-    LClock.SetDefaultTime(BaseTime + (65 / 86400)); // "agora" = T0+65s
+    LTicker.SetDefaultMs(T0Plus(65)); // "agora" = T0+65s
     LPool.SweepIdleConnections(60);
 
-    Assert.AreEqual(1, LEvents.Count,
+    Assert.AreEqual(1, Integer(LEvents.Count),
       'Uma varredura que fecha conexões deve disparar exatamente 1 evento pekIdleSweepClosed');
     Assert.AreEqual<TPoolEventKind>(pekIdleSweepClosed, LEvents[0].Kind);
     Assert.AreEqual(1, LEvents[0].ClosedCount,
@@ -1733,7 +1800,7 @@ begin
 
     Assert.AreEqual(Int64(1), LPoolIntf.GetSnapshot.TotalIdleSwept);
   finally
-    TClock.Reset;
+    TTicker.Reset;
     LEvents.Free;
   end;
 end;
@@ -1791,7 +1858,7 @@ begin
       'Conexão que sofreu EAccessViolation não deve voltar ao pool');
     Assert.AreEqual(0, LPool.GetActiveConnections,
       'Conexão descartada não conta mais como ativa');
-    Assert.AreEqual(1, LEvents.Count, 'Deve disparar exatamente 1 evento pekConnectionDiscarded');
+    Assert.AreEqual(1, Integer(LEvents.Count), 'Deve disparar exatamente 1 evento pekConnectionDiscarded');
     Assert.AreEqual<TPoolEventKind>(pekConnectionDiscarded, LEvents[0].Kind);
     Assert.AreEqual<TPoolDiscardReason>(pdrBrokenAfterUse, LEvents[0].DiscardReason);
   finally
@@ -1845,7 +1912,7 @@ begin
 
     Assert.AreEqual(0, LPool.GetPoolSize,
       'Conexão com IsConnected=False após a falha não deve voltar ao pool');
-    Assert.AreEqual(1, LEvents.Count, 'Deve disparar exatamente 1 evento pekConnectionDiscarded');
+    Assert.AreEqual(1, Integer(LEvents.Count), 'Deve disparar exatamente 1 evento pekConnectionDiscarded');
     Assert.AreEqual<TPoolDiscardReason>(pdrBrokenAfterUse, LEvents[0].DiscardReason);
   finally
     LEvents.Free;
@@ -1910,7 +1977,7 @@ begin
 
     Assert.AreEqual(1, LPool.GetPoolSize,
       'Exceção de negócio com conexão ainda saudável não deve descartar a conexão');
-    Assert.AreEqual(0, LEvents.Count,
+    Assert.AreEqual(0, Integer(LEvents.Count),
       'Nenhum evento pekConnectionDiscarded deve disparar para erro de dados normal');
   finally
     LEvents.Free;
@@ -1982,7 +2049,7 @@ begin
       'Conexão que sofreu EAccessViolation na leitura de campo deve sair de ativa (0), não ficar presa como se ainda estivesse em uso');
     Assert.AreEqual(0, LPool.GetPoolSize,
       'Conexão que sofreu EAccessViolation na leitura de campo não deve voltar ao pool');
-    Assert.AreEqual(1, LEvents.Count, 'Deve disparar exatamente 1 evento pekConnectionDiscarded');
+    Assert.AreEqual(1, Integer(LEvents.Count), 'Deve disparar exatamente 1 evento pekConnectionDiscarded');
     Assert.AreEqual<TPoolEventKind>(pekConnectionDiscarded, LEvents[0].Kind);
     Assert.AreEqual<TPoolDiscardReason>(pdrBrokenAfterUse, LEvents[0].DiscardReason);
   finally

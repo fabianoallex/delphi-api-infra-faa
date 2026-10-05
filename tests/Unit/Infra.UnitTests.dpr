@@ -23,8 +23,6 @@ uses
   Common.JsonMapperTests in 'Common.JsonMapperTests.pas',
   Common.JsonResolverTests in 'Common.JsonResolverTests.pas',
   Common.JsonSerializerTests in 'Common.JsonSerializerTests.pas',
-  ClockCacheTests in 'ClockCacheTests.pas',
-  OptionalsTests in 'OptionalsTests.pas',
   Db.Mock in '..\..\src\Db\Db.Mock.pas',
   Common.RateLimitState in '..\..\src\Common\Common.RateLimitState.pas',
   Common.SafeLog in '..\..\src\Common\Common.SafeLog.pas',

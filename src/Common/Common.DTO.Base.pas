@@ -3,7 +3,16 @@
 interface
 
 uses
-  Common.Optionals;
+  PascalCommon.Optionals,
+  PascalCommon.Version;
+
+// A pascal-common-faa não vem dentro desta lib: quem fornece a cópia única é a
+// aplicação (submódulo próprio + search path). Esta checagem para a build com
+// uma mensagem clara se a cópia fornecida for antiga demais. Repetida em
+// Db.Interfaces: um consumidor pode usar só DTOs ou só a camada Db.*.
+{$IF PASCALCOMMON_VERSION < 10000}
+  {$MESSAGE FATAL 'delphi-api-infra-faa precisa da pascal-common-faa 1.0.0 ou mais nova'}
+{$IFEND}
 
 type
 

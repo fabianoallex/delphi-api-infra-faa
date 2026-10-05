@@ -6,6 +6,27 @@ comuns para que agentes de IA produzam código correto desde a primeira tentativ
 
 ---
 
+## Dependência: pascal-common-faa
+
+Os tipos opcionais (`IOptXxx`/`INullXxx`/`IOptNullXxx`, `TOptionals`), `TClock`/`TTicker`/`TSleep`
+e `TClockCache` vêm da [pascal-common-faa](https://github.com/fabianoallex/pascal-common-faa)
+(units `PascalCommon.Optionals`, `PascalCommon.SystemContext`, `PascalCommon.ClockCache`). As
+antigas `Common.Optionals`/`Common.SystemContext`/`Common.ClockCache` não existem mais — não as
+recrie nem copie código de lá para cá.
+
+- `external/pascal-common-faa` (tag fixa) é **só** para os testes desta lib. O projeto consumidor
+  fornece a cópia única (submodule próprio + search path dele); nunca aponte o search path de um
+  consumidor para `infra\external\...`.
+- Versão mínima checada em `Common.DTO.Base` e `Db.Interfaces` (`PASCALCOMMON_VERSION`). Ao
+  passar a usar algo novo da pascal-common-faa, suba o mínimo nas duas.
+- **Duração se mede com `TTicker`** (monotônico), nunca com `TClock.Now`: `TClock` é hora do dia e
+  salta com horário de verão/NTP. `Db.Connection.Pool` (ociosidade) e `Common.RateLimitState`
+  (janela) já seguem isso; `TClock` só para o que é data/hora de fato (timestamps, `ResetUnix`).
+- O que precisar mudar na pascal-common-faa vai anotado em
+  `.ci/f9-findings-for-pascal-common-faa.md`, não editado lá a partir daqui.
+
+---
+
 ## Checklist: criar um novo domínio
 
 Ao criar um domínio `Pedido` (ou qualquer outro), siga esta sequência:
@@ -966,7 +987,7 @@ begin
 
           LRetType := LMethod.ReturnType;
           if (LRetType = nil) or (LRetType.TypeKind <> tkInterface) then Continue;
-          // convenção da lib (Common.Optionals): todo tipo opcional/anulável começa
+          // convenção da lib (PascalCommon.Optionals): todo tipo opcional/anulável começa
           // com IOpt ou INull. Outros getters de interface (DTOs aninhados etc.)
           // não fazem parte desse contrato de "nunca nil".
           if not (LRetType.Name.StartsWith('IOpt') or LRetType.Name.StartsWith('INull')) then

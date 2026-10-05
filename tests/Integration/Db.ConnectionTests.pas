@@ -67,8 +67,8 @@ begin
 
   LConfig.SQLDialect := TTestConfig.GetSQLDialect;
 
-  // Garante que o FireDAC use a fbclient.dll 32-bit correta quando
-  // VendorLib não estiver definido no ini (comum em instalações 64-bit)
+  // Garante que o FireDAC use a fbclient.dll da plataforma (32 ou 64-bit) quando
+  // VendorLib não estiver definido no ini (ver TTestConfig.DetectFirebirdVendorLib)
   if LConfig.ConnectionParams.Values['VendorLib'] = '' then
   begin
     var LVendorLib := TTestConfig.DetectFirebirdVendorLib;

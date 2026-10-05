@@ -3,7 +3,7 @@
 interface
 
 uses
-  Common.Optionals;
+  PascalCommon.Optionals;
 
 const
   PAGE_DEFAULT  = 1;

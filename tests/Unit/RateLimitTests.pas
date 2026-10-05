@@ -6,19 +6,25 @@ uses
   DUnitX.TestFramework,
   System.SysUtils,
   System.DateUtils,
-  Common.SystemContext,
+  PascalCommon.SystemContext,
   Common.RateLimitState;
 
 type
-  // Clock com tempo ajustável — isola os testes de Now() real.
-  TManualClock = class(TInterfacedObject, IClock)
+  // Relógio de parede (IClock) e monotônico (ITicker) com tempo ajustável —
+  // isola os testes de Now() real. SetTime move os dois juntos, como o tempo
+  // de verdade; ShiftWall muda só a hora do sistema (horário de verão, NTP),
+  // que o monotônico não vê.
+  TManualClock = class(TInterfacedObject, IClock, ITicker)
   private
-    FTime: TDateTime;
+    FTime:      TDateTime;
+    FWallShift: TDateTime;
   public
     constructor Create(ATime: TDateTime);
     procedure SetTime(ATime: TDateTime);
+    procedure ShiftWall(ADelta: TDateTime);
     function Now: TDateTime;
     function Date: TDateTime;
+    function NowMs: UInt64;
   end;
 
   [TestFixture]
@@ -61,6 +67,10 @@ type
 
     { Limite unitário }
     [Test] procedure SingleRequestLimit_FirstPasses_SecondBlocked;
+
+    { Mudança da hora do sistema }
+    [Test] procedure WallClockMovesBack_DoesNotExtendBlock;
+    [Test] procedure WallClockMovesForward_DoesNotEndBlockEarly;
   end;
 
 implementation
@@ -80,14 +90,24 @@ begin
   FTime := ATime;
 end;
 
+procedure TManualClock.ShiftWall(ADelta: TDateTime);
+begin
+  FWallShift := FWallShift + ADelta;
+end;
+
 function TManualClock.Now: TDateTime;
 begin
-  Result := FTime;
+  Result := FTime + FWallShift;
 end;
 
 function TManualClock.Date: TDateTime;
 begin
-  Result := Trunc(FTime);
+  Result := Trunc(Now);
+end;
+
+function TManualClock.NowMs: UInt64;
+begin
+  Result := UInt64(Round(FTime * MSecsPerDay));
 end;
 
 { TRateLimitStateTests }
@@ -97,6 +117,7 @@ begin
   FT0    := EncodeDate(2025, 1, 1) + EncodeTime(12, 0, 0, 0);
   FClock := TManualClock.Create(FT0);
   TClock.SetClock(FClock);
+  TTicker.SetTicker(FClock);
   FState := TRateLimitState.Create;
 end;
 
@@ -104,6 +125,7 @@ procedure TRateLimitStateTests.TearDown;
 begin
   FState := nil;
   TClock.Reset;
+  TTicker.Reset;
 end;
 
 procedure TRateLimitStateTests.FillBucket(const AKey: string;
@@ -284,6 +306,40 @@ begin
 
   FState.CheckAndRecord('ip1', 1, 60, LRem, LReset, LExc);
   Assert.IsTrue(LExc, 'Segunda requisição com limite 1 deve ser bloqueada');
+end;
+
+{ Mudança da hora do sistema }
+
+procedure TRateLimitStateTests.WallClockMovesBack_DoesNotExtendBlock;
+var
+  LRem: Integer; LReset: Int64; LExc: Boolean;
+begin
+  // Com a janela no relógio de parede, o recuo de 1h deixava as 10 entradas
+  // "no futuro": o cliente seguia bloqueado por mais 1h depois da janela.
+  FillBucket('ip1', 10, 60, 10);
+  FClock.ShiftWall(-1 / HoursPerDay);
+  FClock.SetTime(FT0 + 61 / SECS_PER_DAY);
+
+  FState.CheckAndRecord('ip1', 10, 60, LRem, LReset, LExc);
+  Assert.IsFalse(LExc, 'Passada a janela, o recuo da hora do sistema não pode manter o bloqueio');
+  Assert.AreEqual(9, LRem, 'Passada a janela, a quota volta inteira');
+  Assert.AreEqual(DateTimeToUnix(FT0 - 1 / HoursPerDay + 121 / SECS_PER_DAY, False), LReset,
+    'ResetUnix segue o relógio de parede atual: agora (já recuado) + janela');
+end;
+
+procedure TRateLimitStateTests.WallClockMovesForward_DoesNotEndBlockEarly;
+var
+  LRem: Integer; LReset: Int64; LExc: Boolean;
+begin
+  // Com a janela no relógio de parede, o avanço de 1h expirava a janela na hora.
+  FillBucket('ip1', 10, 60, 10);
+  FClock.ShiftWall(1 / HoursPerDay);
+  FClock.SetTime(FT0 + 10 / SECS_PER_DAY);
+
+  FState.CheckAndRecord('ip1', 10, 60, LRem, LReset, LExc);
+  Assert.IsTrue(LExc, 'O avanço da hora do sistema não pode encerrar a janela antes do tempo');
+  Assert.AreEqual(DateTimeToUnix(FT0 + 1 / HoursPerDay + 60 / SECS_PER_DAY, False), LReset,
+    'ResetUnix: agora (já avançado) + os 50s que faltam da janela');
 end;
 
 initialization

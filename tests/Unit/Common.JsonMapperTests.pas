@@ -7,7 +7,7 @@ uses
   System.TypInfo,
   Common.JsonMapper,
   Common.DTO.Base,
-  Common.Optionals;
+  PascalCommon.Optionals;
 
 type
   // Interfaces exclusivas deste arquivo — GUIDs únicos garantem isolamento

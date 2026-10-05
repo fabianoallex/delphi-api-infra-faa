@@ -6,8 +6,14 @@ uses
   System.Classes,
   System.SysUtils,
   Common.Helpers,
-  Common.Optionals,
+  PascalCommon.Optionals,
+  PascalCommon.Version,
   Db.SqlLoader;
+
+// Mesma checagem de Common.DTO.Base — ver o comentário lá.
+{$IF PASCALCOMMON_VERSION < 10000}
+  {$MESSAGE FATAL 'delphi-api-infra-faa precisa da pascal-common-faa 1.0.0 ou mais nova'}
+{$IFEND}
 
 type
   ISQLDialect = interface
