@@ -50,7 +50,7 @@ Da raiz do projeto consumidor (nunca de dentro de `infra/`):
 
    ```bash
    git submodule add https://github.com/fabianoallex/pascal-common-faa modules/pascal-common-faa
-   git -C modules/pascal-common-faa checkout v1.1.1
+   git -C modules/pascal-common-faa checkout v1.2.0
    ```
 
    Sem `--recursive` aqui: a pascal-common-faa tem um submodule próprio

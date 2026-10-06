@@ -107,7 +107,7 @@ E a pascal-common-faa, como submodule próprio da aplicação (ver "Dependência
 
 ```bash
 git submodule add https://github.com/fabianoallex/pascal-common-faa modules/pascal-common-faa
-git -C modules/pascal-common-faa checkout v1.1.1
+git -C modules/pascal-common-faa checkout v1.2.0
 ```
 
 ### Clonar um projeto que já usa este submodule
