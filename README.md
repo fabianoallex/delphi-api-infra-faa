@@ -70,7 +70,7 @@ Atualizando um projeto que usava uma versão anterior a 0.1.0: ver
 
 `IDBFactory`, `IQuery`, `IParams`, `IQueryResult`, `IScopeTransaction`, o pool, `TSQLLoader`,
 `TDBMigrationEngine`, `TDBRegistry`, `TMockDBFactory` e o adapter FireDAC vêm da
-[pascal-db-faa](https://github.com/fabianoallex/pascal-db-faa) (v0.10.1 ou mais nova), units
+[pascal-db-faa](https://github.com/fabianoallex/pascal-db-faa) (v0.11.0 ou mais nova — a build para com `F1054` se for mais velha), units
 `PascalDb.*`. Os nomes dos tipos são os mesmos que esta lib tinha em `src/Db` (removido na
 v0.2.0); o que muda é o nome das units e `TFDConfig` → `TDatabaseConfig`
 (`PascalDb.Adapter.Base`). Mesma regra da pascal-common-faa: o submodule
@@ -117,7 +117,7 @@ E a pascal-common-faa, como submodule próprio da aplicação (ver "Dependência
 git submodule add https://github.com/fabianoallex/pascal-common-faa modules/pascal-common-faa
 git -C modules/pascal-common-faa checkout v1.2.0
 git submodule add https://github.com/fabianoallex/pascal-db-faa modules/pascal-db-faa
-git -C modules/pascal-db-faa checkout v0.10.1
+git -C modules/pascal-db-faa checkout v0.11.0
 ```
 
 Os dois sem `--recursive`: os submodules deles (`external/`) são só para os testes de cada lib.
@@ -861,6 +861,7 @@ Lance a classe correta no Service ou Repository — o `OnError` converte automat
 | `EConflictException` | 409 | Violação de unicidade, estado incompatível |
 | `EOrderByException` | 400 | Ordenação por campo não permitido (gerada internamente pelo `TOrderBySpec`) |
 | `EEncodingError` | 400 | Corpo/query que não é UTF-8 válido — o provider do Horse estoura ao decodificar `Req.Body`; resposta com mensagem fixa, sem `AOnError` |
+| `EConstraintViolationException` | 409 / 422 | Violação de constraint, gerada pela pascal-db-faa (0.11.0) no `Open`/`ExecSql`: `Kind` `cvUnique`/`cvForeignKey` → 409 (chave duplicada, FK); `cvNotNull`/`cvCheck` → 422 e `AOnError` (faltou validação no Service). Mensagem fixa em português; nome da constraint só em `OriginalMessage` |
 | `ELockConflictException` | 409 | Lock de outra transação além de `LockTimeoutMs`, update conflict ou deadlock — gerada pela pascal-db-faa no `Open`/`ExecSql`; resposta com mensagem fixa em português, detalhe do driver só no `AOnError` |
 | `EDatabaseUnavailableException` | 503 | Banco de dados indisponível/conexão perdida (ou `EDatabaseConnectException`, subclasse, quando o pool não consegue abrir conexão) — gerada internamente pelo pool (`PascalDb.Interfaces.BuildDatabaseException`) ao classificar uma exceção como conexão quebrada (ver "Resiliência" na seção Pool de conexões); **não é** pra ser lançada manualmente no Service/Repository |
 | `EHttpException` | custom | Qualquer outro status — `EHttpException.Create(status, msg)` |

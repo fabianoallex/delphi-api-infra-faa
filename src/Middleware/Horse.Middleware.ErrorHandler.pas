@@ -55,6 +55,12 @@ type
   ///                                  decodifica com TEncoding.UTF8 e estoura ao
   ///                                  ler Req.Body. Sem isso virava 500 com
   ///                                  "No mapping for the Unicode character...")
+  ///   EConstraintViolationException → 409 (Kind cvUnique/cvForeignKey: chave
+  ///                                  duplicada, FK inexistente ou registro
+  ///                                  referenciado — dado do cliente, não loga)
+  ///                                  → 422 (Kind cvNotNull/cvCheck: o Service
+  ///                                  deixou passar um valor que a tabela
+  ///                                  recusa — chama AOnError, falta validação)
   ///   ELockConflictException      → 409 (PascalDb.Interfaces — lock de outra
   ///                                  transação além do LockTimeoutMs, update
   ///                                  conflict ou deadlock; chama AOnError)
@@ -65,13 +71,13 @@ type
   ///                                  de negócio esperado)
   ///   Exception                   → 500
   ///
-  /// No 409/503 o corpo traz uma mensagem fixa em português, não
+  /// No 409/422/503 o corpo traz uma mensagem fixa em português, não
   /// AException.Message: as exceções da pascal-db-faa têm mensagem em inglês, e
   /// o detalhe do driver (OriginalClassName/OriginalMessage) vai só para AOnError.
   ///
-  /// AOnError é opcional e só é chamado para 409 de lock, 503 e 500 —
-  /// EHttpException/EOrderByException são fluxo de negócio esperado (400/404/409),
-  /// não erro a ser monitorado.
+  /// AOnError é opcional e só é chamado para 409 de lock, 422 de constraint,
+  /// 503 e 500 — EHttpException/EOrderByException e o 409 de chave duplicada/FK
+  /// são fluxo de negócio esperado, não erro a ser monitorado.
   ///
   /// Uso no DPR (em qualquer ponto antes de THorse.Listen):
   ///   TErrorHandlerMiddleware.Register;
@@ -96,13 +102,27 @@ uses
   System.JSON,
   Horse,
   Common.OrderBy,
+  PascalDb.Version,
   PascalDb.Interfaces;
+
+// EConstraintViolationException e ExecSql com linhas afetadas chegaram na 0.11.0.
+// A aplicação fornece a pascal-db-faa (modules/pascal-db-faa): uma cópia antiga
+// demais para a build aqui, com a versão que falta, em vez de "Undeclared
+// identifier" mais abaixo.
+{$IF PASCALDB_VERSION < 1100}
+  {$MESSAGE FATAL 'delphi-api-infra-faa precisa da pascal-db-faa 0.11.0 ou mais nova'}
+{$IFEND}
 
 const
   MSG_DATABASE_UNAVAILABLE =
     'Banco de dados indisponível ou conexão perdida. Tente novamente em instantes.';
   MSG_INVALID_ENCODING =
     'Texto da requisição em codificação inválida: envie o corpo em UTF-8.';
+  MSG_CONSTRAINT: array[TConstraintViolationKind] of string = (
+    'Já existe um registro com estes dados.',                                    // cvUnique
+    'O registro referencia dados inexistentes ou é referenciado por outros dados.', // cvForeignKey
+    'Um campo obrigatório não foi informado.',                                   // cvNotNull
+    'Um valor está fora das regras aceitas.');                                   // cvCheck
   MSG_LOCK_CONFLICT =
     'O registro está bloqueado ou foi alterado por outra operação. Tente novamente.';
 
@@ -198,6 +218,23 @@ begin
     // erro do cliente (bytes inválidos no corpo/query), não da API — não loga
     LStatus  := 400;
     LMessage := MSG_INVALID_ENCODING;
+  end
+  else if AException is EConstraintViolationException then
+  begin
+    LMessage := MSG_CONSTRAINT[EConstraintViolationException(AException).Kind];
+    if EConstraintViolationException(AException).Kind in [cvUnique, cvForeignKey] then
+      LStatus := 409 // dado do cliente em conflito com o que já existe: fluxo esperado
+    else
+    begin
+      // NOT NULL/CHECK: o Service deixou passar um valor que a tabela recusa —
+      // falta validação, vale aparecer no log
+      LStatus := 422;
+      if Assigned(GOnError) then
+        GOnError(Format('%s %s -> %d: %s (%s: %s)',
+          [ARequest.Method, ARequest.PathInfo, LStatus, AException.ClassName,
+           EConstraintViolationException(AException).OriginalClassName,
+           EConstraintViolationException(AException).OriginalMessage]));
+    end;
   end
   else if AException is ELockConflictException then
   begin

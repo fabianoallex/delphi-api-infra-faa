@@ -1,7 +1,7 @@
 # Migração da camada `Db.*` para a pascal-db-faa
 
 **Data da avaliação:** 2026-10-06 · infra `937ad1e` (v0.1.1 + pascal-common-faa v1.2.0) ·
-pascal-db-faa **v0.10.1**
+pascal-db-faa **v0.10.1** (infra v0.2.0). Depois, infra v0.3.0 → pascal-db-faa **v0.11.0**: ver o fim
 
 A [pascal-db-faa](https://github.com/fabianoallex/pascal-db-faa) foi extraída de `src/Db/*`
 desta lib no commit `aa49f2b` (2026-08-25) e evoluiu sozinha desde então (dual-compiler, mais
@@ -95,3 +95,22 @@ compatibilidade `Db.*` reexportando aliases), como breaking change da infra (v0.
 2. **delphi-api-starter**, depois **api-test** — submodule `modules/pascal-db-faa`, search
    path, renomear `uses`/`in`, `TFDConfig` → `TDatabaseConfig`, build na IDE, testes.
 3. **retaweb-local** — mesmo roteiro (outra máquina).
+
+---
+
+## Infra v0.3.0: pascal-db-faa 0.11.0
+
+Consumidor que já está na infra v0.2.x:
+
+1. `git -C modules/pascal-db-faa checkout v0.11.0` (+ `git add`), e avançar o `infra` para a
+   v0.3.0. Com a pascal-db-faa velha, a build para com `F1054 delphi-api-infra-faa precisa da
+   pascal-db-faa 0.11.0 ou mais nova`.
+2. `PascalDb.Version` entra na lista de units do `.dpr`/`.dproj` (se o projeto lista as units da
+   pascal-db-faa com `in '...'`); quem resolve pelo search path não precisa fazer nada.
+3. Update/Delete por id: tirar o `RETURNING` dos `.sql` e trocar o `Open` + teste de chave nula
+   por `Result := LQuery.ExecSql > 0` (CLAUDE.md, "Registro inexistente → 404").
+4. Nada a fazer para chave duplicada/FK: o 500 com a mensagem do FireDAC vira 409 sozinho.
+   Código que capturava a exceção do driver (`EFDDBEngineException`) para isso precisa capturar
+   `EConstraintViolationException`.
+5. SQLite: as FKs passam a ser verificadas (`ForeignKeys=Off` no FireDAC devolve o
+   comportamento antigo).

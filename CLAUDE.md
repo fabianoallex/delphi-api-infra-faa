@@ -45,11 +45,14 @@ banco é feita na pascal-db-faa.
   `PascalDb.SqlLoader`/`PascalDb.SqlDialect`/`PascalDb.Migrations`/`PascalDb.Mock`.
   `TFDConfig` → `TDatabaseConfig` (`PascalDb.Adapter.Base`), sempre numa variável
   `IDatabaseConfig` (as properties só existem na interface).
-- A pascal-db-faa não expõe constante de versão: não há checagem de mínimo em compilação.
-  O que precisar mudar lá vai anotado em `.ci/findings-for-pascal-db-faa.md`.
+- Versão mínima: **0.11.0**, checada em `Horse.Middleware.ErrorHandler`
+  (`PASCALDB_VERSION`, unit `PascalDb.Version`). Ao passar a usar algo novo da pascal-db-faa,
+  suba o mínimo lá. O que precisar mudar na pascal-db-faa vai anotado em
+  `.ci/findings-for-pascal-db-faa.md`.
 - Exceções da pascal-db-faa têm mensagem em inglês. O `TErrorHandlerMiddleware` responde 503
-  (`EDatabaseUnavailableException`/`EDatabaseConnectException`) e 409
-  (`ELockConflictException`) com mensagem fixa em português — não repassa `E.Message`.
+  (`EDatabaseUnavailableException`/`EDatabaseConnectException`), 409 (`ELockConflictException`;
+  `EConstraintViolationException` unique/FK) e 422 (`EConstraintViolationException` not null/
+  check) com mensagem fixa em português — não repassa `E.Message`.
 - Guia de migração dos consumidores: `docs/migracao-pascal-db-faa.md`.
 
 ---
@@ -566,14 +569,13 @@ decide o valor, nenhum dos dois precisa que o Repository proteja contra `nil` de
 
 - **FindById:** o Repository devolve `nil` quando não acha; o **Service** lança
   `ENotFoundException` (o middleware responde 404 em JSON). O handler nunca testa `nil` nem faz
-  `Res.Status(404).Send(...)` — texto puro sai sem `charset` e com acento quebrado, e foge do
-  formato `{"error": ...}` das outras respostas de erro.
-- **Update/Delete por id:** `ExecSql` não informa linhas afetadas (pendência na pascal-db-faa,
-  `.ci/findings-for-pascal-db-faa.md` item 5), então um `UPDATE`/`DELETE` de id inexistente
-  "dá certo" e vira 204. Até isso existir, o SQL devolve a chave com `RETURNING` e o Repository
-  usa `Open`: sem linha **ou** com a chave `NULL` = não achou. O Repository devolve `Boolean`; o Service lança
-  `ENotFoundException` quando é `False`. O `UPDATE` roda mesmo sem campo nenhum para mudar (o
-  `SET` mantém uma atribuição neutra fora das tags, ex. `ID = ID`) — assim `PATCH {}` em id
+  `Res.Status(404).Send(...)` — texto puro sai sem `charset` e foge do formato `{"error": ...}`
+  das outras respostas de erro.
+- **Update/Delete por id:** `LQuery.ExecSql` devolve as linhas afetadas (pascal-db-faa 0.11.0;
+  `-1` se o driver não souber). O Repository devolve `Boolean` (`ExecSql > 0`); o Service lança
+  `ENotFoundException` quando é `False`. Num `UPDATE` a contagem é de linhas **casadas**, mudadas
+  ou não (MySQL/MariaDB incluídos) — então o `UPDATE` roda mesmo sem campo nenhum para mudar (o
+  `SET` mantém uma atribuição neutra fora das tags, ex. `ID = ID`), e `PATCH {}` em id
   inexistente também é 404:
 
 ```sql
@@ -582,10 +584,6 @@ UPDATE PEDIDO SET
   [STATUS {] STATUS = :STATUS, [} STATUS]
   ID = ID
 WHERE ID = :ID
-RETURNING ID
-
--- PEDIDO.DELETE.sql
-DELETE FROM PEDIDO WHERE ID = :ID RETURNING ID
 ```
 
 ```pascal
@@ -593,10 +591,7 @@ function TPedidoRepository.Delete(const AId: Integer): Boolean;   // True = acho
 ...
     LQuery.Sql := FFactory.SqlLoader['PEDIDO.DELETE'].SQL;
     LQuery.Params.Integers['ID'] := AId;
-    LResult := LQuery.Open;              // RETURNING: Open, não ExecSql
-    // Firebird < 5 devolve SEMPRE uma linha (com NULL quando nada casou);
-    // Firebird 5 e PostgreSQL devolvem nenhuma. Os dois testes juntos cobrem ambos.
-    Result := (not LResult.IsEmpty) and (not LResult.NullableIntegers['ID'].IsNull);
+    Result := LQuery.ExecSql > 0;        // linhas afetadas
     LScope.Commit;
 ...
 procedure TPedidoService.Delete(const AId: Integer);
@@ -606,11 +601,21 @@ begin
 end;
 ```
 
-`RETURNING` em `UPDATE`/`DELETE` existe no Firebird (2.1+) e no PostgreSQL; MySQL não tem — lá,
-até a pascal-db-faa expor linhas afetadas, é `SELECT` antes. **Só `IsEmpty` não basta no
-Firebird 2.5/3/4:** em DSQL o `RETURNING` de `UPDATE`/`DELETE` é singleton e devolve uma linha
-de `NULL`s quando nenhuma linha casou (medido no Firebird 2.5 em 2026-10-06:
-`DELETE ... WHERE ID = -12345 RETURNING ID` → `ID <null>`).
+No teste com `TMockDBFactory`, `SetRowsAffected('PEDIDO.DELETE', 0)` simula o id inexistente.
+Até a 0.10.x isso era feito com `UPDATE/DELETE ... RETURNING` + `Open` — não use mais: além de
+não existir no MySQL, o Firebird < 5 devolve uma linha de `NULL`s quando nada casa (o
+`IsEmpty` sozinho erra).
+
+### Violação de constraint → 409/422, sem código no domínio
+
+Chave duplicada, FK, `NOT NULL` e `CHECK` sobem como `EConstraintViolationException`
+(pascal-db-faa 0.11.0), com `Kind`, e o `TErrorHandlerMiddleware` responde: `cvUnique` /
+`cvForeignKey` → **409**; `cvNotNull` / `cvCheck` → **422** (e `AOnError`, porque é validação
+que faltou no Service). Mensagem fixa em português; o detalhe do driver (nome da constraint)
+fica em `OriginalMessage`, só no log. Não capture essa exceção no Repository para "traduzir" —
+só no Service, e só se houver uma mensagem de negócio melhor (`EConflictException('CPF já
+cadastrado.')`, olhando `Kind = cvUnique`). Validação de campo obrigatório continua no Service
+(`EValidationException`, 400); o 422 é a rede de segurança, não o caminho normal.
 
 ---
 

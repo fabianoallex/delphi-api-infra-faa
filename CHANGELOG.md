@@ -4,6 +4,23 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); 
 [SemVer](https://semver.org/lang/pt-BR/). Antes da 0.1.0 a lib não tinha versões: os consumidores
 apontavam o submódulo para um commit.
 
+## [Não lançado]
+
+### Mudado
+
+- **Quebra de compatibilidade:** exige a pascal-db-faa **0.11.0** ou mais nova. A checagem é em
+  compilação (`PASCALDB_VERSION`, em `Horse.Middleware.ErrorHandler`): com uma cópia antiga, a
+  build para com `F1054 delphi-api-infra-faa precisa da pascal-db-faa 0.11.0 ou mais nova`.
+  Roteiro no fim de `docs/migracao-pascal-db-faa.md`.
+- `TErrorHandlerMiddleware`: `EConstraintViolationException` (nova na pascal-db-faa 0.11.0) →
+  **409** para chave duplicada/FK (`cvUnique`/`cvForeignKey`, sem `AOnError`) e **422** para
+  `NOT NULL`/`CHECK` (`cvNotNull`/`cvCheck`, com `AOnError`: faltou validação no Service). Mensagem
+  fixa em português por tipo. Antes, chave duplicada era 500 com a mensagem do driver.
+- CLAUDE.md: Update/Delete por id detectam registro inexistente com `ExecSql > 0` (linhas
+  afetadas, novo na 0.11.0) em vez de `UPDATE/DELETE ... RETURNING`; seção nova "Violação de
+  constraint → 409/422".
+- Testes da lib: submodule `external/pascal-db-faa` na 0.11.0.
+
 ## [0.2.1] — 2026-10-06
 
 ### Corrigido

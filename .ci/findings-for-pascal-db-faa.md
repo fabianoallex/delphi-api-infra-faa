@@ -6,9 +6,11 @@ logo depois. Não editar a pascal-db-faa a partir daqui: cada item é trabalhado
 **na própria pascal-db-faa** (dual-compiler, três adapters, suíte de contrato, CI FPC/Linux).
 O que depende disso do lado da infra está em "Depois, na infra" no fim de cada item.
 
-Prioridade sugerida: 4 e 5 (corrigem respostas erradas da API hoje), depois 1, 2 e 3.
+**Situação (2026-10-06):** 1, 4 e 5 resolvidos na pascal-db-faa **0.11.0** (`1a29107`) e já
+consumidos pela infra (v0.3.0). Pendentes: **2** (documentação, na pascal-db-faa) e **3** (sessão
+na pascal-common-faa).
 
-## 1. Sem constante de versão
+## 1. Sem constante de versão — RESOLVIDO na 0.11.0 (`PascalDb.Version`, `PASCALDB_VERSION`)
 
 A pascal-common-faa expõe `PASCALCOMMON_VERSION` (`PascalCommon.Version`), e quem depende dela
 para a build com mensagem clara quando a cópia fornecida é antiga demais
@@ -23,7 +25,7 @@ por `PascalDb.Interfaces`.
 **Depois, na infra:** `{$IF PASCALDB_VERSION < ...}{$MESSAGE FATAL ...}` em
 `Horse.Middleware.ErrorHandler` (a unit da infra que mais depende de classes recentes).
 
-## 2. `TDatabaseConfig` sem properties na classe
+## 2. `TDatabaseConfig` sem properties na classe — PENDENTE
 
 As properties (`ConnectionParams`, `SQLDialect`, `PoolIniConnections`...) só existem em
 `IDatabaseConfig`. O `TFDConfig` da infra tinha `ConnectionParams`/`SQLDialect`/`SQLDirectory`
@@ -34,7 +36,7 @@ qualquer forma (é `TInterfacedObject`), mas a mensagem de erro não leva a essa
 uma linha no header de `PascalDb.Adapter.Base` / `docs/getting-started.md` dizendo
 explicitamente "declare `IDatabaseConfig`, a classe não tem properties".
 
-## 3. Dois `SafeWriteln`
+## 3. Dois `SafeWriteln` — PENDENTE (sessão na pascal-common-faa)
 
 `PascalDb.SafeLog` e o `Common.SafeLog` da infra são cópias, cada uma com sua seção crítica: num
 processo que usa as duas, um `SafeWriteln` de cada lado pode intercalar. Candidato a ir para a
@@ -43,7 +45,7 @@ aparecer um segundo usuário": este é o segundo).
 
 **Depois, na infra:** `Common.SafeLog` vira fachada (ou some) para a unit da common.
 
-## 4. Violação de constraint (chave duplicada, FK) sobe como exceção crua do driver
+## 4. Violação de constraint (chave duplicada, FK) sobe como exceção crua do driver — RESOLVIDO na 0.11.0 (`EConstraintViolationException`, `Kind` cvUnique/cvForeignKey/cvNotNull/cvCheck; infra mapeia 409/422)
 
 Observado no api-test: `POST /cidades` com `COD_IBGE` já existente responde **500** com
 `[FireDAC][Phys][FB]violation of PRIMARY or UNIQUE KEY constraint "PK_CIDADE"...` — mensagem do
@@ -82,7 +84,7 @@ Sugestão, no mesmo molde de `ELockConflictException` (v0.4.0):
 em português (como já faz com `ELockConflictException`), detalhe só no `AOnError`. Starter e
 api-test param de devolver 500 em chave duplicada sem mudar nada no domínio.
 
-## 5. `ExecSql` não informa linhas afetadas
+## 5. `ExecSql` não informa linhas afetadas — RESOLVIDO na 0.11.0 (`ExecSql: Int64`; mock `SetRowsAffected`)
 
 `IQuery.ExecSql` é `procedure`. Um `UPDATE`/`DELETE` por id que não acha linha não tem como
 avisar, e o Repository acaba respondendo 204 para id inexistente (visto no starter e no
