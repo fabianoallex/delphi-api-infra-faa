@@ -4,6 +4,30 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); 
 [SemVer](https://semver.org/lang/pt-BR/). Antes da 0.1.0 a lib não tinha versões: os consumidores
 apontavam o submódulo para um commit.
 
+## [Não lançado]
+
+### Corrigido
+
+- Mensagens acentuadas do `TErrorHandlerMiddleware` saíam corrompidas na resposta HTTP
+  (`Banco de dados indisponÃ­vel...`, e o padrão `Recurso nÃ£o encontrado.` de
+  `ENotFoundException`): `Horse.Middleware.ErrorHandler.pas` estava em UTF-8 **sem BOM**, e o
+  Delphi lê fonte sem BOM como ANSI. Arquivo regravado com BOM (também
+  `Common.PoolSnapshotEndpoint.pas` e `Infra.UnitTests.dpr`, que só tinham acento em
+  comentário). Regra nova no CLAUDE.md ("Anti-padrões").
+- `TErrorHandlerMiddleware`: `EEncodingError` → **400** com mensagem fixa ("envie o corpo em
+  UTF-8"), sem `AOnError`. É o que o provider do Horse levanta ao ler `Req.Body` com bytes que
+  não são UTF-8 válido; antes virava 500 com "No mapping for the Unicode character exists in the
+  target multi-byte code page".
+
+### Documentação
+
+- CLAUDE.md, "Registro inexistente → 404, sempre pelo Service": `ENotFoundException` lançada no
+  Service (nunca `Res.Status(404).Send` no handler) e `UPDATE`/`DELETE ... RETURNING` para
+  detectar id inexistente, incluindo o desvio do Firebird < 5 (linha de `NULL`s quando nada
+  casa).
+- `.ci/findings-for-pascal-db-faa.md`: itens 4 (violação de constraint como exceção própria,
+  para virar 409) e 5 (linhas afetadas no `ExecSql`), com o levantamento por banco/adapter.
+
 ## [0.2.0] — 2026-10-06
 
 ### Mudado

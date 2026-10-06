@@ -1,4 +1,4 @@
-unit Common.PoolSnapshotEndpoint;
+﻿unit Common.PoolSnapshotEndpoint;
 
 interface
 

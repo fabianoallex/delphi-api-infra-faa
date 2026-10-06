@@ -1,4 +1,4 @@
-unit Horse.Middleware.ErrorHandler;
+﻿unit Horse.Middleware.ErrorHandler;
 
 interface
 
@@ -50,6 +50,11 @@ type
   /// Mapeamento:
   ///   EHttpException              → E.StatusCode
   ///   EOrderByException           → 400
+  ///   EEncodingError              → 400 (texto da requisição — corpo, query —
+  ///                                  que não é UTF-8 válido; o provider do Horse
+  ///                                  decodifica com TEncoding.UTF8 e estoura ao
+  ///                                  ler Req.Body. Sem isso virava 500 com
+  ///                                  "No mapping for the Unicode character...")
   ///   ELockConflictException      → 409 (PascalDb.Interfaces — lock de outra
   ///                                  transação além do LockTimeoutMs, update
   ///                                  conflict ou deadlock; chama AOnError)
@@ -96,6 +101,8 @@ uses
 const
   MSG_DATABASE_UNAVAILABLE =
     'Banco de dados indisponível ou conexão perdida. Tente novamente em instantes.';
+  MSG_INVALID_ENCODING =
+    'Texto da requisição em codificação inválida: envie o corpo em UTF-8.';
   MSG_LOCK_CONFLICT =
     'O registro está bloqueado ou foi alterado por outra operação. Tente novamente.';
 
@@ -185,6 +192,12 @@ begin
   begin
     LStatus  := 400;
     LMessage := AException.Message;
+  end
+  else if AException is EEncodingError then
+  begin
+    // erro do cliente (bytes inválidos no corpo/query), não da API — não loga
+    LStatus  := 400;
+    LMessage := MSG_INVALID_ENCODING;
   end
   else if AException is ELockConflictException then
   begin

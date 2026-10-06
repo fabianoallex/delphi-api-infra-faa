@@ -562,6 +562,56 @@ Note o padrão: **um único `Assigned`, no topo, para o `ADto` como um todo.** D
 campo opcional é `.HasValue` puro — `ProcessTag` decide o SQL, `Params.OptXxx`/`OptNullXxx`
 decide o valor, nenhum dos dois precisa que o Repository proteja contra `nil` de novo.
 
+### Registro inexistente → 404, sempre pelo Service
+
+- **FindById:** o Repository devolve `nil` quando não acha; o **Service** lança
+  `ENotFoundException` (o middleware responde 404 em JSON). O handler nunca testa `nil` nem faz
+  `Res.Status(404).Send(...)` — texto puro sai sem `charset` e com acento quebrado, e foge do
+  formato `{"error": ...}` das outras respostas de erro.
+- **Update/Delete por id:** `ExecSql` não informa linhas afetadas (pendência na pascal-db-faa,
+  `.ci/findings-for-pascal-db-faa.md` item 5), então um `UPDATE`/`DELETE` de id inexistente
+  "dá certo" e vira 204. Até isso existir, o SQL devolve a chave com `RETURNING` e o Repository
+  usa `Open`: sem linha **ou** com a chave `NULL` = não achou. O Repository devolve `Boolean`; o Service lança
+  `ENotFoundException` quando é `False`. O `UPDATE` roda mesmo sem campo nenhum para mudar (o
+  `SET` mantém uma atribuição neutra fora das tags, ex. `ID = ID`) — assim `PATCH {}` em id
+  inexistente também é 404:
+
+```sql
+-- PEDIDO.UPDATE.sql
+UPDATE PEDIDO SET
+  [STATUS {] STATUS = :STATUS, [} STATUS]
+  ID = ID
+WHERE ID = :ID
+RETURNING ID
+
+-- PEDIDO.DELETE.sql
+DELETE FROM PEDIDO WHERE ID = :ID RETURNING ID
+```
+
+```pascal
+function TPedidoRepository.Delete(const AId: Integer): Boolean;   // True = achou e apagou
+...
+    LQuery.Sql := FFactory.SqlLoader['PEDIDO.DELETE'].SQL;
+    LQuery.Params.Integers['ID'] := AId;
+    LResult := LQuery.Open;              // RETURNING: Open, não ExecSql
+    // Firebird < 5 devolve SEMPRE uma linha (com NULL quando nada casou);
+    // Firebird 5 e PostgreSQL devolvem nenhuma. Os dois testes juntos cobrem ambos.
+    Result := (not LResult.IsEmpty) and (not LResult.NullableIntegers['ID'].IsNull);
+    LScope.Commit;
+...
+procedure TPedidoService.Delete(const AId: Integer);
+begin
+  if not FRepository.Delete(AId) then
+    raise ENotFoundException.Create('Pedido não encontrado.');
+end;
+```
+
+`RETURNING` em `UPDATE`/`DELETE` existe no Firebird (2.1+) e no PostgreSQL; MySQL não tem — lá,
+até a pascal-db-faa expor linhas afetadas, é `SELECT` antes. **Só `IsEmpty` não basta no
+Firebird 2.5/3/4:** em DSQL o `RETURNING` de `UPDATE`/`DELETE` é singleton e devolve uma linha
+de `NULL`s quando nenhuma linha casou (medido no Firebird 2.5 em 2026-10-06:
+`DELETE ... WHERE ID = -12345 RETURNING ID` → `ID <null>`).
+
 ---
 
 ## Padrão de Controller
@@ -903,6 +953,13 @@ Dois pontos onde aplicar por padrão em todo projeto novo:
 - Declarar um campo de Find/Insert/Update como `IOptXxx`/`INullXxx` sem checar se o SQL trata essa coluna como opcional (`[TAG {} TAG]`) — ou o oposto, deixar uma tag no SQL sem campo `Opt` correspondente no DTO. Ver "Contrato DTO ↔ SQL" em "Padrão de SQL" — a opcionalidade é uma única decisão que precisa bater no DTO, no SQL e no `ProcessTag` do Repository ao mesmo tempo, nunca decidida isoladamente em um dos três
 - Usar `INullXxx` (sem `Opt`) num campo de DTO que vem de JSON ou query string (Insert/Update/Find) — o tipo não distingue "chave ausente" de `"campo": null` (as duas colapsam pro mesmo `IsNull = True`, ver "`IOptXxx` vs `INullXxx` vs `IOptNullXxx`"). `INullXxx` é só para Response DTO lendo linha de banco
 - `ExecSql` em INSERT com RETURNING — use `Open`
+- Fonte `.pas`/`.dpr` com caractere não-ASCII (acento em mensagem, comentário) salvo como UTF-8
+  **sem BOM** — o Delphi lê o arquivo como ANSI (cp1252) e compila `'não'` como `'nÃ£o'`, sem
+  aviso nenhum. Todo fonte com não-ASCII vai em **UTF-8 com BOM**. Medido em 2026-10-06 nos
+  bytes do `.exe`: a mensagem de 503 desta lib (`Horse.Middleware.ErrorHandler`, sem BOM desde
+  sempre) saía `indisponÃ­vel`, e o 404 do `Produto.Controller` do api-test, `nÃ£o`. Editor
+  externo/agente que cria arquivo novo costuma gravar sem BOM — confira (`file x.pas` diz
+  "with BOM") antes de commitar
 - SQL inline no código — todo SQL vai em arquivo `.sql` + `queries.rc`
 - Depender de lembrar de rodar `brcc32` manualmente após adicionar/editar SQL — configure o pre-build event (ver "Build automático dos `.res`" em "Padrão de SQL") em vez de confiar em disciplina humana
 - `Writeln` direto em código que pode rodar fora da main thread (handler HTTP, `OnRequest` de pipe-server, thread de pool) — usar `SafeWriteln` (`Common.SafeLog`)

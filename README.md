@@ -860,6 +860,7 @@ Lance a classe correta no Service ou Repository — o `OnError` converte automat
 | `ENotFoundException` | 404 | Registro não encontrado pelo ID informado |
 | `EConflictException` | 409 | Violação de unicidade, estado incompatível |
 | `EOrderByException` | 400 | Ordenação por campo não permitido (gerada internamente pelo `TOrderBySpec`) |
+| `EEncodingError` | 400 | Corpo/query que não é UTF-8 válido — o provider do Horse estoura ao decodificar `Req.Body`; resposta com mensagem fixa, sem `AOnError` |
 | `ELockConflictException` | 409 | Lock de outra transação além de `LockTimeoutMs`, update conflict ou deadlock — gerada pela pascal-db-faa no `Open`/`ExecSql`; resposta com mensagem fixa em português, detalhe do driver só no `AOnError` |
 | `EDatabaseUnavailableException` | 503 | Banco de dados indisponível/conexão perdida (ou `EDatabaseConnectException`, subclasse, quando o pool não consegue abrir conexão) — gerada internamente pelo pool (`PascalDb.Interfaces.BuildDatabaseException`) ao classificar uma exceção como conexão quebrada (ver "Resiliência" na seção Pool de conexões); **não é** pra ser lançada manualmente no Service/Repository |
 | `EHttpException` | custom | Qualquer outro status — `EHttpException.Create(status, msg)` |
