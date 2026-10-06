@@ -6,8 +6,9 @@ uses
   DUnitX.TestFramework,
   System.SysUtils,
   System.Classes,
-  Db.Interfaces,
-  Db.Adapters.FireDAC,
+  PascalDb.Interfaces,
+  PascalDb.Adapter.Base,
+  PascalDb.Adapter.FireDAC,
   TestConfig;
 
 type
@@ -47,7 +48,7 @@ end;
 
 procedure TConnectionTests.SetupFixture;
 var
-  LConfig: TFDConfig;
+  LConfig: IDatabaseConfig; // variável de interface, nunca de classe (TDatabaseConfig é TInterfacedObject)
   LParams: TStrings;
 begin
   if not TTestConfig.IsConfigured then
@@ -57,7 +58,7 @@ begin
     Exit;
   end;
 
-  LConfig := TFDConfig.Create;
+  LConfig := TDatabaseConfig.Create;
   LParams := TTestConfig.GetConnectionParams;
   try
     LConfig.ConnectionParams.AddStrings(LParams);

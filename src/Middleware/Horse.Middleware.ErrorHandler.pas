@@ -50,15 +50,22 @@ type
   /// Mapeamento:
   ///   EHttpException              → E.StatusCode
   ///   EOrderByException           → 400
-  ///   EDatabaseUnavailableException → 503 (Db.Interfaces — conexão perdida/AV
-  ///                                  classificada por BuildDatabaseException;
-  ///                                  diferente de EHttpException/EOrderByException,
-  ///                                  ESTE branch chama AOnError — é infra quebrando,
-  ///                                  não fluxo de negócio esperado)
+  ///   ELockConflictException      → 409 (PascalDb.Interfaces — lock de outra
+  ///                                  transação além do LockTimeoutMs, update
+  ///                                  conflict ou deadlock; chama AOnError)
+  ///   EDatabaseUnavailableException → 503 (PascalDb.Interfaces — conexão perdida/AV
+  ///                                  classificada por BuildDatabaseException, ou
+  ///                                  EDatabaseConnectException ao abrir conexão;
+  ///                                  chama AOnError — é infra quebrando, não fluxo
+  ///                                  de negócio esperado)
   ///   Exception                   → 500
   ///
-  /// AOnError é opcional e só é chamado para o branch 500 (Exception genérica)
-  /// — EHttpException/EOrderByException são fluxo de negócio esperado (400/404/409),
+  /// No 409/503 o corpo traz uma mensagem fixa em português, não
+  /// AException.Message: as exceções da pascal-db-faa têm mensagem em inglês, e
+  /// o detalhe do driver (OriginalClassName/OriginalMessage) vai só para AOnError.
+  ///
+  /// AOnError é opcional e só é chamado para 409 de lock, 503 e 500 —
+  /// EHttpException/EOrderByException são fluxo de negócio esperado (400/404/409),
   /// não erro a ser monitorado.
   ///
   /// Uso no DPR (em qualquer ponto antes de THorse.Listen):
@@ -84,7 +91,13 @@ uses
   System.JSON,
   Horse,
   Common.OrderBy,
-  Db.Interfaces;
+  PascalDb.Interfaces;
+
+const
+  MSG_DATABASE_UNAVAILABLE =
+    'Banco de dados indisponível ou conexão perdida. Tente novamente em instantes.';
+  MSG_LOCK_CONFLICT =
+    'O registro está bloqueado ou foi alterado por outra operação. Tente novamente.';
 
 { EHttpException }
 
@@ -173,17 +186,29 @@ begin
     LStatus  := 400;
     LMessage := AException.Message;
   end
+  else if AException is ELockConflictException then
+  begin
+    LStatus  := 409;
+    LMessage := MSG_LOCK_CONFLICT;
+    // conflito de concorrência: o cliente pode repetir, mas deadlock/lock
+    // longo frequente é sinal de problema — vale aparecer no log
+    if Assigned(GOnError) then
+      GOnError(Format('%s %s -> %d: %s (%s: %s)',
+        [ARequest.Method, ARequest.PathInfo, LStatus, AException.ClassName,
+         ELockConflictException(AException).OriginalClassName,
+         ELockConflictException(AException).OriginalMessage]));
+  end
   else if AException is EDatabaseUnavailableException then
   begin
     LStatus  := 503;
-    LMessage := AException.Message; // genérica de propósito — ver EDatabaseUnavailableException
+    LMessage := MSG_DATABASE_UNAVAILABLE; // genérica de propósito — ver EDatabaseUnavailableException
     // Diferente de EHttpException/EOrderByException (fluxo de negócio
     // esperado, não loga): isto É infra quebrando — vale monitorar. O
     // detalhe original (classe + mensagem da exceção nativa, endereço de AV
     // incluso) vai só pro log, nunca pro cliente.
     if Assigned(GOnError) then
       GOnError(Format('%s %s -> %d: %s (%s: %s)',
-        [ARequest.Method, ARequest.PathInfo, LStatus, LMessage,
+        [ARequest.Method, ARequest.PathInfo, LStatus, AException.ClassName,
          EDatabaseUnavailableException(AException).OriginalClassName,
          EDatabaseUnavailableException(AException).OriginalMessage]));
   end

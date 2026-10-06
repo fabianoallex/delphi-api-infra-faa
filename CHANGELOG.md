@@ -4,6 +4,28 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); 
 [SemVer](https://semver.org/lang/pt-BR/). Antes da 0.1.0 a lib não tinha versões: os consumidores
 apontavam o submódulo para um commit.
 
+## [Não lançado]
+
+### Mudado
+
+- **Quebra de compatibilidade:** a camada de banco passa a vir da
+  [pascal-db-faa](https://github.com/fabianoallex/pascal-db-faa) (v0.10.1). `src/Db/` foi
+  removido; a aplicação fornece a pascal-db-faa (submodule `modules/pascal-db-faa`, com `src` e
+  `adaptersiredac` no search path), como já fornece a pascal-common-faa. Renomes: `Db.Interfaces`
+  → `PascalDb.Interfaces`, `Db.Connection.Pool` → `PascalDb.Pool`, `Db.Adapters.Registry` →
+  `PascalDb.Registry`, `Db.Adapters.FireDAC` → `PascalDb.Adapter.FireDAC`, `Db.SqlLoader` /
+  `Db.SqlDialect` / `Db.Migrations` / `Db.Mock` → `PascalDb.*` com o mesmo sufixo; `Db.Constants`
+  (vazia) some. `TFDConfig` → `TDatabaseConfig` (`PascalDb.Adapter.Base`), numa variável
+  `IDatabaseConfig`. Os tipos (`IDBFactory`, `IQuery`, `IParams`, `TSQLLoader`,
+  `TDBMigrationEngine`, `TMockDBFactory`...) mantêm nome e assinatura. Roteiro e mudanças de
+  comportamento herdadas (strings Unicode no FireDAC, pool LIFO, `ELockConflictException`,
+  `EDatabaseConnectException`, mensagens em inglês): `docs/migracao-pascal-db-faa.md`.
+- `TErrorHandlerMiddleware`: `ELockConflictException` → **409**, com `AOnError`. No 503 e no 409
+  o corpo traz mensagem fixa em português em vez de `E.Message` (as exceções da pascal-db-faa são
+  em inglês); a linha de `AOnError` do 503 traz a classe da exceção no lugar da mensagem genérica.
+- Testes: os unitários `Db.PoolTests`, `Db.SqlLoaderTests` e `Db.MockTests` saem (a pascal-db-faa
+  tem os seus); o de integração `Db.ConnectionTests` fica, agora sobre a pascal-db-faa.
+
 ## [0.1.1] — 2026-10-05
 
 ### Corrigido

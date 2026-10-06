@@ -142,7 +142,7 @@ begin
 
   // Evento manual-reset: SetEvent na finalização acorda a thread na hora,
   // sem esperar o intervalo cheio — mesmo padrão do idle-sweep do pool
-  // (Db.Connection.Pool.TConnectionPool.StartIdleSweep).
+  // (PascalDb.Pool.TConnectionPool.StartIdleSweep, na pascal-db-faa).
   FWake := TEvent.Create(nil, True, False, '');
   FThread := TThread.CreateAnonymousThread(
     procedure

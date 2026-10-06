@@ -3,7 +3,7 @@
 interface
 
 uses
-  Db.Interfaces;
+  PascalDb.Interfaces;
 
 type
   /// Registra GET /health no Horse (fora do Swagger e do MCP).

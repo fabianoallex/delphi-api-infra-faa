@@ -4,7 +4,7 @@ interface
 
 uses
   System.JSON,
-  Db.Interfaces;
+  PascalDb.Interfaces;
 
 type
   /// Um acesso a banco nomeado, para o overload multi-pool de

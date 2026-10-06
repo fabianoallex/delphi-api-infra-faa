@@ -2,7 +2,7 @@
 
 Biblioteca de infraestrutura para APIs Delphi. Fornece tipos opcionais/anuláveis, serialização JSON, pool de conexões, carregamento de SQL, documentação Swagger e exposição de tools MCP.
 
-O acesso a banco de dados é agnóstico: a camada de abstração (`Db.Interfaces`) desacopla a lógica da aplicação de qualquer componente ou banco. Inclui um adaptador FireDAC pronto para uso (Firebird, PostgreSQL e outros bancos suportados pelo FireDAC), e a arquitetura permite registrar adaptadores para qualquer outro componente (Zeos, UniDAC, dbExpress, etc.) implementando as interfaces de `Db.Interfaces`.
+O acesso a banco de dados vem da [pascal-db-faa](https://github.com/fabianoallex/pascal-db-faa) (desde a v0.2.0 desta lib; antes era `src/Db`, de onde a pascal-db-faa foi extraída): contratos agnósticos (`PascalDb.Interfaces`), pool, migrations, SQL por chave com tags e mock para testes. O adaptador FireDAC (`PascalDb.Adapter.FireDAC`) atende Firebird, PostgreSQL, SQLite e MySQL/MariaDB; a pascal-db-faa também tem adapters SQLdb e Zeos, e qualquer outro componente entra implementando `IDBComponentProvider`. Esta lib usa a camada de banco em `Common.HealthCheck`, `Common.PoolSnapshotEndpoint` e no `TErrorHandlerMiddleware` (503/409).
 
 ## Conteúdo
 
@@ -17,15 +17,6 @@ src/
     Common.Config.pas         — TAppConfig: leitura de env vars com fallback para .env
     Common.HealthCheck.pas    — THealthCheck: registra GET /health com verificação de banco
     Common.PoolSnapshotEndpoint.pas — TPoolSnapshotEndpoint: registra GET /pool/snapshot com métricas do pool
-  Db/
-    Db.Interfaces.pas         — IDBConnection, IDBConnectionPool, ITransaction, IQuery, IMigrationDialect
-    Db.Connection.Pool.pas    — TConnectionPool thread-safe com timeout e inatividade
-    Db.SqlLoader.pas          — TSQLResult (ProcessTag, ApplyFilter, ReplaceLiteral)
-    Db.SqlDialect.pas         — TFirebirdDialect, TPostgreSQLDialect (ISQLDialect + IMigrationDialect)
-    Db.Migrations.pas         — TMigrationItem, TDBMigrationEngine
-    Db.Adapters.FireDAC.pas   — Adapter FireDAC (agnóstico ao driver)
-    Db.Adapters.Registry.pas  — TDBRegistry: registro de factories por nome
-    Db.Constants.pas          — Constantes de configuração do pool
   Swagger/
     Swagger.Attributes.pas    — [SwagProp], [SwagMin], [SwagMax], [SwagEnum], [SwagPattern]: atributos de schema
     Swagger.Builder.pas       — TRouteDoc / TRouteDocBuilder: builder fluente de rotas + doc
@@ -43,14 +34,16 @@ src/
   Messaging/
     Messaging.Interfaces.pas          — TMessagingConfig, IMessagePayload, IMessageHandler, IMessageConsumer, IMessagePublisher, IMessagingFactory
     Messaging.Adapters.Registry.pas   — TMessagingRegistry: registro de factories por nome
-  Db/ (extras para testes)
-    Db.Mock.pas                       — TMockDBFactory: mock in-memory de IDBFactory para testes unitários
 tests/
   Unit/         — testes unitários (DUnitX) — Infra.UnitTests.dpr
   Integration/  — testes com banco Firebird real — Infra.IntegrationTests.dpr
 external/
   pascal-common-faa/  — submodule SÓ para os testes desta lib (ver abaixo)
+  pascal-db-faa/      — submodule SÓ para os testes desta lib (ver abaixo)
 ```
+
+A camada de banco (`IDBFactory`, pool, `TSQLLoader`, migrations, `TMockDBFactory`) não fica mais
+aqui: vem da pascal-db-faa (ver "Dependência: pascal-db-faa").
 
 ### Dependência: pascal-common-faa
 
@@ -68,10 +61,25 @@ processo. Isso importa quando a aplicação também usa outra lib que depende da
 (pascal-db-faa, pascal-amqp-faa...): com uma cópia por lib, a aplicação teria dois `IOptString`
 diferentes com o mesmo GUID. Uma versão antiga demais para a build com
 `F1054 delphi-api-infra-faa precisa da pascal-common-faa 1.0.0 ou mais nova` (checagem em
-`Common.DTO.Base` e `Db.Interfaces`).
+`Common.DTO.Base`; a pascal-db-faa faz a dela, em `PascalDb.Interfaces`).
 
 Atualizando um projeto que usava uma versão anterior a 0.1.0: ver
 [`docs/migracao-pascal-common-faa.md`](docs/migracao-pascal-common-faa.md).
+
+### Dependência: pascal-db-faa
+
+`IDBFactory`, `IQuery`, `IParams`, `IQueryResult`, `IScopeTransaction`, o pool, `TSQLLoader`,
+`TDBMigrationEngine`, `TDBRegistry`, `TMockDBFactory` e o adapter FireDAC vêm da
+[pascal-db-faa](https://github.com/fabianoallex/pascal-db-faa) (v0.10.1 ou mais nova), units
+`PascalDb.*`. Os nomes dos tipos são os mesmos que esta lib tinha em `src/Db` (removido na
+v0.2.0); o que muda é o nome das units e `TFDConfig` → `TDatabaseConfig`
+(`PascalDb.Adapter.Base`). Mesma regra da pascal-common-faa: o submodule
+`external/pascal-db-faa` é só dos testes daqui; a aplicação tem o seu
+(`modules/pascal-db-faa`) e põe `src` e `adapters\firedac` **dele** no search path. Documentação
+completa da camada de banco (SQL, pool, erros, migrations, mock): `docs/` da pascal-db-faa.
+
+Atualizando um projeto que usava `infra\src\Db` (v0.1.x): ver
+[`docs/migracao-pascal-db-faa.md`](docs/migracao-pascal-db-faa.md).
 
 ---
 
@@ -108,7 +116,11 @@ E a pascal-common-faa, como submodule próprio da aplicação (ver "Dependência
 ```bash
 git submodule add https://github.com/fabianoallex/pascal-common-faa modules/pascal-common-faa
 git -C modules/pascal-common-faa checkout v1.2.0
+git submodule add https://github.com/fabianoallex/pascal-db-faa modules/pascal-db-faa
+git -C modules/pascal-db-faa checkout v0.10.1
 ```
+
+Os dois sem `--recursive`: os submodules deles (`external/`) são só para os testes de cada lib.
 
 ### Clonar um projeto que já usa este submodule
 
@@ -133,11 +145,11 @@ git commit -m "chore: atualiza infra"
 Adicione ao `DCC_UnitSearchPath` do seu `.dproj`:
 
 ```
-infra\src\Common;infra\src\Db;infra\src\Swagger;infra\src\MCP;infra\src\Middleware;infra\modules\swag-doc\Source;modules\pascal-common-faa\src
+infra\src\Common;infra\src\Swagger;infra\src\MCP;infra\src\Middleware;infra\modules\swag-doc\Source;modules\pascal-common-faa\src;modules\pascal-db-faa\src;modules\pascal-db-faa\adapters\firedac
 ```
 
-O último item é a cópia da pascal-common-faa **da aplicação**, nunca
-`infra\external\pascal-common-faa\src`. O clone recursivo (necessário por causa do SwagDoc,
+Os três últimos itens são as cópias da pascal-common-faa e da pascal-db-faa **da aplicação**,
+nunca `infra\external\...`. O clone recursivo (necessário por causa do SwagDoc,
 item 6) também baixa essa pasta de dentro de `infra/`, mas ela é só dos testes da lib: com ela no
 search path, a aplicação volta a ter duas cópias assim que usar outra lib que dependa da
 pascal-common-faa.
@@ -148,13 +160,14 @@ pascal-common-faa.
 uses
   Common.JsonMapper    in 'infra\src\Common\Common.JsonMapper.pas',
   Common.Helpers       in 'infra\src\Common\Common.Helpers.pas',
-  Db.Interfaces        in 'infra\src\Db\Db.Interfaces.pas',
-  Db.Connection.Pool   in 'infra\src\Db\Db.Connection.Pool.pas',
-  Db.SqlLoader         in 'infra\src\Db\Db.SqlLoader.pas',
-  Db.SqlDialect        in 'infra\src\Db\Db.SqlDialect.pas',
-  Db.Adapters.Registry in 'infra\src\Db\Db.Adapters.Registry.pas',
-  Db.Adapters.FireDAC  in 'infra\src\Db\Db.Adapters.FireDAC.pas',
-  Db.Constants         in 'infra\src\Db\Db.Constants.pas',
+  // camada de banco — pascal-db-faa (cópia da aplicação, não a de infra\external)
+  PascalDb.Interfaces      in 'modules\pascal-db-faa\src\PascalDb.Interfaces.pas',
+  PascalDb.Pool            in 'modules\pascal-db-faa\src\PascalDb.Pool.pas',
+  PascalDb.SqlLoader       in 'modules\pascal-db-faa\src\PascalDb.SqlLoader.pas',
+  PascalDb.SqlDialect      in 'modules\pascal-db-faa\src\PascalDb.SqlDialect.pas',
+  PascalDb.Registry        in 'modules\pascal-db-faa\src\PascalDb.Registry.pas',
+  PascalDb.Adapter.Base    in 'modules\pascal-db-faa\src\PascalDb.Adapter.Base.pas',
+  PascalDb.Adapter.FireDAC in 'modules\pascal-db-faa\adapters\firedac\PascalDb.Adapter.FireDAC.pas',
   // Swagger (opcional — incluir apenas se o projeto usa TRouteDoc)
   Swagger.Attributes   in 'infra\src\Swagger\Swagger.Attributes.pas',
   Swagger.Builder      in 'infra\src\Swagger\Swagger.Builder.pas',
@@ -201,7 +214,7 @@ end.
 
 ### 5. Recursos SQL (TSQLLoader)
 
-O `Db.SqlLoader` não embute recursos — cada projeto fornece os seus. Adicione ao DPR:
+O `TSQLLoader` (`PascalDb.SqlLoader`) não embute recursos — cada projeto fornece os seus. Adicione ao DPR:
 
 ```pascal
 {$R 'src\Db\sql\queries.res'}
@@ -847,7 +860,8 @@ Lance a classe correta no Service ou Repository — o `OnError` converte automat
 | `ENotFoundException` | 404 | Registro não encontrado pelo ID informado |
 | `EConflictException` | 409 | Violação de unicidade, estado incompatível |
 | `EOrderByException` | 400 | Ordenação por campo não permitido (gerada internamente pelo `TOrderBySpec`) |
-| `EDatabaseUnavailableException` | 503 | Banco de dados indisponível/conexão perdida — gerada internamente pelo pool (`Db.Interfaces.BuildDatabaseException`) ao classificar uma exceção como conexão quebrada (ver "Resiliência" na seção Pool de conexões); **não é** pra ser lançada manualmente no Service/Repository |
+| `ELockConflictException` | 409 | Lock de outra transação além de `LockTimeoutMs`, update conflict ou deadlock — gerada pela pascal-db-faa no `Open`/`ExecSql`; resposta com mensagem fixa em português, detalhe do driver só no `AOnError` |
+| `EDatabaseUnavailableException` | 503 | Banco de dados indisponível/conexão perdida (ou `EDatabaseConnectException`, subclasse, quando o pool não consegue abrir conexão) — gerada internamente pelo pool (`PascalDb.Interfaces.BuildDatabaseException`) ao classificar uma exceção como conexão quebrada (ver "Resiliência" na seção Pool de conexões); **não é** pra ser lançada manualmente no Service/Repository |
 | `EHttpException` | custom | Qualquer outro status — `EHttpException.Create(status, msg)` |
 | `Exception` | 500 | Qualquer exceção não mapeada |
 
@@ -1292,7 +1306,7 @@ Cada endpoint mantém sua própria lista de tools isolada. O parâmetro `AExclud
 
 ## Migrations
 
-O `Db.Migrations` fornece um engine de migrations baseado em **append-only immutable log**: scripts nunca são alterados após publicados em produção. Suporta Firebird e PostgreSQL via `IMigrationDialect` (implementado em ambos os dialetos da infra).
+O `TDBMigrationEngine` (`PascalDb.Migrations`, da pascal-db-faa) fornece um engine de migrations baseado em **append-only immutable log**: scripts nunca são alterados após publicados em produção. Suporta Firebird e PostgreSQL via `IMigrationDialect` (implementado em ambos os dialetos da infra).
 
 ### Funcionamento
 
@@ -1325,7 +1339,7 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 
 ```pascal
 uses
-  Db.Migrations in 'infra\src\Db\Db.Migrations.pas';
+  PascalDb.Migrations in 'modules\pascal-db-faa\src\PascalDb.Migrations.pas';
 
 const
   MIGRATIONS: array[0..2] of TMigrationItem = (
@@ -1352,7 +1366,7 @@ LEngine.Execute(MIGRATIONS);
 LEngine.Free;
 ```
 
-O callback `AOnEvent` é opcional — omitido, o engine formata cada evento como texto e usa `SafeWriteln` (console). `TMigrationEvent.Kind` define quais campos estão preenchidos (ver comentários em `TMigrationEvent` no próprio `Db.Migrations.pas`). `CurrentVersion` pode ser consultado a qualquer momento, inclusive antes de `Execute`:
+O callback `AOnEvent` é opcional — omitido, o engine formata cada evento como texto e usa `SafeWriteln` (console). `TMigrationEvent.Kind` define quais campos estão preenchidos (ver comentários em `TMigrationEvent` em `PascalDb.Migrations.pas`, na pascal-db-faa). `CurrentVersion` pode ser consultado a qualquer momento, inclusive antes de `Execute`:
 
 ```pascal
 FileLog('startup', 'Versão do schema ao iniciar: %d', [LEngine.CurrentVersion]);
@@ -1376,7 +1390,7 @@ end;
 
 ## Suporte a bancos de dados
 
-O adaptador FireDAC (`Db.Adapters.FireDAC`) é agnóstico ao driver — o banco é definido pelo `DriverID` nos parâmetros de conexão. Os dialetos SQL (`Db.SqlDialect`) para savepoints já estão registrados para Firebird e PostgreSQL.
+O adaptador FireDAC (`PascalDb.Adapter.FireDAC`) é agnóstico ao driver — o banco é definido pelo `DriverID` nos parâmetros de conexão. Os dialetos SQL (`PascalDb.SqlDialect`) já vêm registrados para Firebird, PostgreSQL, SQLite, MySQL/MariaDB e SQL Server (este só via Zeos/SQLdb). Detalhes por banco: `docs/adapters.md` da pascal-db-faa.
 
 ### Firebird
 
@@ -1431,20 +1445,20 @@ SQLDialect=PostgreSQL
 
 ### Outros componentes de acesso a dados
 
-A arquitetura é extensível: qualquer componente (Zeos, UniDAC, dbExpress, etc.) pode ser suportado implementando as interfaces `IDBConnection`, `IDBConnectionPool`, `ITransaction` e `IQuery` definidas em `Db.Interfaces.pas` e registrando a factory no `TDBRegistry`.
+A pascal-db-faa já tem adapters SQLdb e Zeos além do FireDAC; outro componente (UniDAC, dbExpress, ...) entra implementando `IDBComponentProvider` — ver `docs/writing-an-adapter.md` da pascal-db-faa.
 
 ---
 
 ## Pool de conexões
 
-O `Db.Connection.Pool` fornece um pool de conexões thread-safe, usado automaticamente por qualquer `IDBFactory` (incluindo o adapter FireDAC). Controla quantas conexões físicas ficam abertas, quanto tempo esperar por uma livre quando o pool está cheio, e — opcionalmente — fecha conexões ociosas depois de um tempo configurável.
+O pool (`PascalDb.Pool`, da pascal-db-faa) fornece um pool de conexões thread-safe, usado automaticamente por qualquer `IDBFactory` (incluindo o adapter FireDAC). Controla quantas conexões físicas ficam abertas, quanto tempo esperar por uma livre quando o pool está cheio, e — opcionalmente — fecha conexões ociosas depois de um tempo configurável.
 
 ### Configuração
 
-Os campos ficam em `IDatabaseConfig` (`TFDConfig` no adapter FireDAC) e são propagados automaticamente para o pool na criação da factory:
+Os campos ficam em `IDatabaseConfig` (`TDatabaseConfig`, de `PascalDb.Adapter.Base`, serve para qualquer adapter) e são propagados automaticamente para o pool na criação da factory. Declare `LConfig` como `IDatabaseConfig`, nunca como `TDatabaseConfig`: a classe é `TInterfacedObject` e as properties existem só na interface.
 
 ```pascal
-LConfig := TFDConfig.Create;
+LConfig := TDatabaseConfig.Create;   // LConfig: IDatabaseConfig
 LConfig.ConnectionParams.Add(...);
 // ...
 
@@ -1460,7 +1474,7 @@ LFactory := TFDFactory.Create(LConfig, nil);
 
 ### Campos
 
-| Campo | Padrão em `TFDConfig` | Descrição |
+| Campo | Padrão em `TDatabaseConfig` | Descrição |
 |---|---|---|
 | `PoolIniConnections` | `0` | Conexões físicas abertas na inicialização, mantidas sempre disponíveis |
 | `PoolMaxConnections` | `0` | Teto de conexões físicas simultâneas |
@@ -1468,6 +1482,11 @@ LFactory := TFDFactory.Create(LConfig, nil);
 | `PoolWaitMilliseconds` | `0` | Intervalo entre tentativas de espera |
 | `PoolIdleTimeoutSeconds` | `0` (desligado) | Segundos que uma conexão pode ficar ociosa no pool antes de ser fechada. Nunca fecha abaixo de `PoolIniConnections` |
 | `PoolIdleCheckIntervalMs` | `30000` | Intervalo entre varreduras de ociosidade. Só importa quando `PoolIdleTimeoutSeconds > 0` |
+| `PoolValidateIdleSeconds` | `120` | Tempo ocioso a partir do qual a conexão recebe ping antes de ser entregue (`0` = sempre, negativo = nunca). Depois que uma conexão se mostra morta, todas as ociosas recebem ping no próximo acquire |
+| `PoolKeepaliveSeconds` | `0` (desligado) | A thread de fundo faz ping nas conexões ociosas não confirmadas há esse tempo e fecha as que falham |
+| `LockTimeoutMs` | `0` | Quanto um comando espera por lock de outra transação antes de `ELockConflictException` (409). `0` mantém o comportamento de cada banco/driver — FireDAC no Firebird **não espera**: falha na hora |
+
+Detalhes e o que cada opção mede: `docs/pool.md` da pascal-db-faa.
 
 > **Atenção:** só `PoolIdleTimeoutSeconds`/`PoolIdleCheckIntervalMs` têm um default útil sem configurar nada (feature desligada, sem efeito colateral). Os outros quatro campos ficam `0` se o projeto não os definir explicitamente — e com `PoolMaxConnections = 0` o pool nunca consegue abrir conexão nenhuma (`AcquireConnection` estoura `EPoolTimeoutException` na primeira chamada). Sempre configure ao menos `PoolIniConnections` e `PoolMaxConnections`.
 
@@ -1511,7 +1530,7 @@ LFactory := TFDFactory.Create(LConfig, nil,
   end);
 ```
 
-`AOnEvent` é opcional — sem ele, o pool não notifica nada (**sem** fallback de `SafeWriteln`, ao contrário de `TDBMigrationEngine`: silêncio é o comportamento correto de um pool saudável). `TPoolEventKind` define quais campos de `TPoolEvent` estão preenchidos (ver comentários no próprio `Db.Connection.Pool.pas`).
+`AOnEvent` é opcional — sem ele, o pool não notifica nada (**sem** fallback de `SafeWriteln`, ao contrário de `TDBMigrationEngine`: silêncio é o comportamento correto de um pool saudável). `TPoolEventKind` define quais campos de `TPoolEvent` estão preenchidos (ver comentários em `PascalDb.Pool.pas`, na pascal-db-faa).
 
 Para leitura periódica (health check, timer de métricas) em vez de reagir a cada evento, `IDBConnectionPool.GetSnapshot: TPoolSnapshot` expõe o estado atual (`ActiveConnections`, `PoolSize`) e os contadores acumulados desde a criação do pool (`TotalCreated`, `TotalDiscarded`, `TotalTimeouts`, `TotalIdleSwept`):
 
@@ -1539,7 +1558,7 @@ operação e, em vez de devolver uma exceção limpa do FireDAC, corrompe o esta
 conexão o bastante para estourar AV — capturado como exceção Delphi normal no
 `TErrorHandlerMiddleware`, então o serviço sobrevive, mas a conexão AV'd ainda voltava pro pool.
 
-Por isso `Db.Connection.Pool`/`Db.Adapters.FireDAC` agora classificam toda exceção que ocorre nos
+Por isso o pool e o adapter (hoje `PascalDb.Pool`/`PascalDb.Adapter.FireDAC`) classificam toda exceção que ocorre nos
 pontos onde a lib toca o driver nativo — `Query.Open`/`ExecSql`, **a leitura de cada campo do
 `IQueryResult` devolvido por `Open`** (`TQueryResultWrapper` — o `Open` em si pode retornar com
 sucesso e o servidor cair só no meio do fetch, que é onde boa parte do tempo de uma query
@@ -1552,7 +1571,7 @@ que abra transação cedo; como essa chamada fica *fora* do `try/except` do Repo
 classificação nesse ponto específico a exceção nunca passava por `MarkConnectionBrokenIfNeeded` em
 lugar nenhum — foi exatamente esse o gap que sobreviveu às duas primeiras rodadas de correção e só
 apareceu com teste real contra o Firebird derrubado, não nos testes unitários com mocks) — ver
-`IsConnectionBrokenError` em `Db.Interfaces`) como "conexão quebrada" quando é uma
+`IsConnectionBrokenError` em `PascalDb.Interfaces`) como "conexão quebrada" quando é uma
 `EExternal` (base de `EAccessViolation`, `EStackOverflow`, `EPrivilege`, ...) **ou** quando
 `IsConnected` virou `False` logo depois. Deliberadamente **não** cobre exceções de dados normais
 (violação de constraint, tipo inválido, ...) com a conexão ainda `IsConnected = True` — aí a
@@ -1565,7 +1584,7 @@ usada e falhou; **não** substitui o `Ping` de 120s para conexões que ficaram o
 e nunca chegaram a ser usadas depois do restart (aquela janela continua existindo, mitigada por
 `PoolIdleTimeoutSeconds` mais agressivo, como já descrito).
 
-Além de marcar a conexão, `BuildDatabaseException` (Db.Interfaces) devolve a exceção que deve
+Além de marcar a conexão, `BuildDatabaseException` (PascalDb.Interfaces) devolve a exceção que deve
 subir pro chamador em vez da original: em vez da `EAccessViolation`/exceção nativa crua — que
 chegava ao cliente HTTP como `{"error":"Access violation at address ... Read of address ..."}`,
 sem contexto nenhum pra quem recebe — devolve uma `EDatabaseUnavailableException` nova, mapeada
@@ -1723,7 +1742,7 @@ O módulo `src/Messaging/Messaging.Interfaces.pas` define o contrato de mensager
 | `IMessagePublisher` | Publica mensagens — `Publish(exchange, routingKey, body)` |
 | `IMessagingFactory` | Cria `IMessageConsumer`/`IMessagePublisher` — implementada pelo adapter concreto |
 
-Resolução do adapter por nome, mesmo padrão de `Db.Adapters.Registry.TDBRegistry`: o projeto de negócio nunca referencia o pacote concreto (ex.: AMQP), só a string do nome registrado.
+Resolução do adapter por nome, mesmo padrão de `PascalDb.Registry.TDBRegistry`: o projeto de negócio nunca referencia o pacote concreto (ex.: AMQP), só a string do nome registrado.
 
 | Classe | Responsabilidade |
 |---|---|
@@ -1819,14 +1838,14 @@ LConsumer := LFactory.CreateConsumer(LConfig);
 ## Compatibilidade com Lazarus / Free Pascal
 
 Esta biblioteca é **Delphi-only hoje**. A limitação não é de portabilidade genérica — a
-arquitetura já é agnóstica em vários pontos (`Db.Interfaces` + `Db.Adapters.Registry` permitem
-adapter de banco externo, e o Horse tem suporte oficial a Lazarus/FPC). O que trava são três
+arquitetura já é agnóstica em vários pontos (a camada de banco agora é a pascal-db-faa, que já é
+dual-compiler, e o Horse tem suporte oficial a Lazarus/FPC). O que trava são três
 dependências sem equivalente direto no Free Pascal:
 
 | Desafio | Impacto |
 |---|---|
 | **RTTI estendida** — `TJsonMapper` percorre propriedades públicas via `GetProperties`, e o Swagger lê `[SwagProp]` em **métodos** via `TRttiMethod.GetAttributes`. O FPC só gera RTTI para membros `published` e não suporta atributos em métodos | O modelo declarativo de DTO + Swagger automático precisaria ser redesenhado, não apenas portado — é o bloqueio estrutural |
-| **FireDAC** — não existe no FPC | `Db.Adapters.FireDAC` e `Common.Helpers` seriam adapter novo sobre SQLdb/Zeos. Menos grave: já é o ponto de extensão previsto pelo desenho |
+| **FireDAC** — não existe no FPC | Resolvido na camada de banco: a pascal-db-faa tem adapters SQLdb e Zeos. Sobra `Common.Helpers` |
 | **Closures (`reference to`)** — disponíveis no FPC apenas via modeswitch em compilador de desenvolvimento, não no estável embarcado no Lazarus | Middlewares que capturam configuração em closure teriam que virar objetos com estado |
 
 Some-se a isso `System.JSON` → `fpjson` (API e ownership diferentes) e o submodule

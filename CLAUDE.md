@@ -17,13 +17,40 @@ recrie nem copie código de lá para cá.
 - `external/pascal-common-faa` (tag fixa) é **só** para os testes desta lib. O projeto consumidor
   fornece a cópia única (submodule próprio + search path dele); nunca aponte o search path de um
   consumidor para `infra\external\...`.
-- Versão mínima checada em `Common.DTO.Base` e `Db.Interfaces` (`PASCALCOMMON_VERSION`). Ao
-  passar a usar algo novo da pascal-common-faa, suba o mínimo nas duas.
+- Versão mínima checada em `Common.DTO.Base` (`PASCALCOMMON_VERSION`; a pascal-db-faa checa a
+  dela em `PascalDb.Interfaces`). Ao passar a usar algo novo da pascal-common-faa, suba o mínimo.
 - **Duração se mede com `TTicker`** (monotônico), nunca com `TClock.Now`: `TClock` é hora do dia e
-  salta com horário de verão/NTP. `Db.Connection.Pool` (ociosidade) e `Common.RateLimitState`
+  salta com horário de verão/NTP. O pool da pascal-db-faa (ociosidade) e `Common.RateLimitState`
   (janela) já seguem isso; `TClock` só para o que é data/hora de fato (timestamps, `ResetUnix`).
 - O que precisar mudar na pascal-common-faa vai anotado em
   `.ci/f9-findings-for-pascal-common-faa.md`, não editado lá a partir daqui.
+
+---
+
+## Dependência: pascal-db-faa
+
+A camada de banco (`IDBFactory`, `IQuery`, `IParams`, `IQueryResult`, `IScopeTransaction`, pool,
+`TSQLLoader`/`TSQLResult`, `TDBMigrationEngine`, `TDBRegistry`, `TMockDBFactory`, adapter
+FireDAC) vem da [pascal-db-faa](https://github.com/fabianoallex/pascal-db-faa), units
+`PascalDb.*`. O antigo `src/Db` (`Db.Interfaces`, `Db.Connection.Pool`, `Db.Adapters.FireDAC`,
+...) foi removido na v0.2.0 — não o recrie nem copie código de lá para cá; correção na camada de
+banco é feita na pascal-db-faa.
+
+- Mesmo arranjo da pascal-common-faa: `external/pascal-db-faa` (tag fixa) é **só** para os testes
+  desta lib; o consumidor tem `modules/pascal-db-faa` e põe `src` + `adapters\firedac` **dele**
+  no search path.
+- Mapa de nomes: `Db.Interfaces` → `PascalDb.Interfaces`, `Db.Connection.Pool` →
+  `PascalDb.Pool`, `Db.Adapters.Registry` → `PascalDb.Registry`, `Db.Adapters.FireDAC` →
+  `PascalDb.Adapter.FireDAC`, `Db.SqlLoader`/`Db.SqlDialect`/`Db.Migrations`/`Db.Mock` →
+  `PascalDb.SqlLoader`/`PascalDb.SqlDialect`/`PascalDb.Migrations`/`PascalDb.Mock`.
+  `TFDConfig` → `TDatabaseConfig` (`PascalDb.Adapter.Base`), sempre numa variável
+  `IDatabaseConfig` (as properties só existem na interface).
+- A pascal-db-faa não expõe constante de versão: não há checagem de mínimo em compilação.
+  O que precisar mudar lá vai anotado em `.ci/findings-for-pascal-db-faa.md`.
+- Exceções da pascal-db-faa têm mensagem em inglês. O `TErrorHandlerMiddleware` responde 503
+  (`EDatabaseUnavailableException`/`EDatabaseConnectException`) e 409
+  (`ELockConflictException`) com mensagem fixa em português — não repassa `E.Message`.
+- Guia de migração dos consumidores: `docs/migracao-pascal-db-faa.md`.
 
 ---
 
@@ -68,7 +95,7 @@ Ao criar um domínio `Pedido` (ou qualquer outro), siga esta sequência:
 ### `IOptXxx` vs `INullXxx` vs `IOptNullXxx` — qual usar
 
 Os três respondem perguntas diferentes, e a escolha errada não dá erro de compilação — só se
-manifesta em runtime, de um jeito que só aparece lendo `Common.JsonMapper`/`Db.Interfaces` linha
+manifesta em runtime, de um jeito que só aparece lendo `Common.JsonMapper`/`PascalDb.Interfaces` linha
 a linha. Decida **antes** de escrever a interface, com base nesta tabela, não por "parece
 opcional":
 
@@ -178,7 +205,7 @@ LQuery.Sql := FFactory.SqlLoader['PEDIDO.UPDATE']
 LQuery.Params.OptStrings['STATUS'] := ADto.Status;
 ```
 
-Os helpers `Params.OptXxx`/`Params.OptNullXxx` (`Db.Adapters.FireDAC`) já fazem
+Os helpers `Params.OptXxx`/`Params.OptNullXxx` (`IParams`, pascal-db-faa) já fazem
 `if not AValue.HasValue then Exit` por dentro — por isso `ADto.Status` pode ser passado direto
 para `Params.OptStrings['STATUS']`, sem checagem prévia nenhuma. Esses helpers **dependem** da
 garantia de não-nil do getter: se o getter não usasse `TOptionals.Safe` e devolvesse `nil`, a
@@ -437,7 +464,7 @@ O script resolve `sql/` a partir da própria localização do `.bat` (`%~dp0..\s
 working directory de quem chama — por isso o mesmo arquivo funciona chamado de qualquer `.dproj`
 do repositório, só ajustando o caminho relativo até ele. **Registre o Pre-Build Event em todo
 `.dproj` que embute esses `{$R}`, não só no da API principal** — os projetos de teste
-(unitário/integração) tipicamente também referenciam os mesmos resources (via `Db.SqlLoader`
+(unitário/integração) tipicamente também referenciam os mesmos resources (via `TSQLLoader`
 para testes que batem no banco de verdade), e ficam expostos ao mesmo risco de `.res`
 desatualizado se ficarem de fora:
 
@@ -600,9 +627,11 @@ Para `BuildItemsJson`, ver implementação em `Exemplo.Controller` no delphi-api
 `EOrderByException` não precisa ser capturada no handler — o `TErrorHandlerMiddleware` (via `THorse.OnError`) converte automaticamente para 400.
 Da mesma forma, uma queda de conexão com o banco (servidor fora do ar, restart abrupto) nunca
 precisa ser capturada manualmente no Service/Repository — o pool já classifica isso internamente
-(`Db.Interfaces.BuildDatabaseException`) e relança `EDatabaseUnavailableException`, que o
+(`PascalDb.Interfaces.BuildDatabaseException`) e relança `EDatabaseUnavailableException`, que o
 `TErrorHandlerMiddleware` converte para 503 com mensagem genérica; **não** lance essa classe
-manualmente, ela é exclusiva desse mecanismo interno.
+manualmente, ela é exclusiva desse mecanismo interno. O mesmo vale para `ELockConflictException`
+(lock de outra transação além de `LockTimeoutMs`, update conflict, deadlock): o middleware
+responde 409 — capture no Service só se houver o que fazer além de devolver o erro (ex.: repetir).
 
 ---
 
@@ -727,7 +756,7 @@ sql/
     ...
 ```
 
-O prefixo (`FB` / `PG`) é o `SQLDirectory` do `TFDConfig` e vira o segmento do meio no nome do resource: `SQL_<DIRECTORY>_<NOME>`. Ambos os `.res` ficam embutidos no executável via `{$R}`; em runtime, apenas os resources do dialeto ativo são acessados. Não crie `.bat` por pasta (`fb.bat`, `pg.bat`) — o script único descrito abaixo varre `sql/` inteira e recompila todos os `.rc` que encontrar, dialeto único ou múltiplos bancos, sem distinção.
+O prefixo (`FB` / `PG`) é o `SQLDirectory` do `TDatabaseConfig` e vira o segmento do meio no nome do resource: `SQL_<DIRECTORY>_<NOME>`. Ambos os `.res` ficam embutidos no executável via `{$R}`; em runtime, apenas os resources do dialeto ativo são acessados. Não crie `.bat` por pasta (`fb.bat`, `pg.bat`) — o script único descrito abaixo varre `sql/` inteira e recompila todos os `.rc` que encontrar, dialeto único ou múltiplos bancos, sem distinção.
 
 ### DPR — factory única, seleção em runtime
 
@@ -747,7 +776,7 @@ const
   );
 
 LDialect := TAppConfig.Get('DB_DIALECT', 'Firebird');
-LConfig  := TFDConfig.Create;
+LConfig  := TDatabaseConfig.Create;   // LConfig: IDatabaseConfig — nunca variável de classe
 
 if SameText(LDialect, 'PostgreSQL') then
 begin
@@ -800,7 +829,7 @@ LService := TPedidoService.Create(TPedidoRepository.Create(LFactory));
 
 ## Pool de conexões
 
-Tamanho do pool e fechamento por inatividade são configurados em `TFDConfig`, antes de `TFDFactory.Create` (mesmo bloco de montagem da factory, acima):
+Tamanho do pool e fechamento por inatividade são configurados em `IDatabaseConfig` (`TDatabaseConfig`), antes de `TFDFactory.Create` (mesmo bloco de montagem da factory, acima):
 
 ```pascal
 LConfig.PoolIniConnections      := TAppConfig.GetInt('POOL_INI_CONNECTIONS', 3);
@@ -811,7 +840,7 @@ LConfig.PoolIdleCheckIntervalMs := TAppConfig.GetInt('POOL_IDLE_CHECK_INTERVAL_M
 LFactory := TFDFactory.Create(LConfig, nil);
 ```
 
-`PoolIniConnections`/`PoolMaxConnections` **não têm default** em `TFDConfig` — sem configurar, ficam `0` e o pool não abre conexão nenhuma. `PoolIdleTimeoutSeconds` fecha conexões ociosas no pool além do limite configurado, nunca abaixo de `PoolIniConnections`; fica desligado (comportamento idêntico a antes da opção existir) até ser configurado explicitamente. Campos completos e efeitos colaterais no README, seção "Pool de conexões".
+`PoolIniConnections`/`PoolMaxConnections` **não têm default** em `TDatabaseConfig` — sem configurar, ficam `0` e o pool não abre conexão nenhuma. `PoolIdleTimeoutSeconds` fecha conexões ociosas no pool além do limite configurado, nunca abaixo de `PoolIniConnections`; fica desligado (comportamento idêntico a antes da opção existir) até ser configurado explicitamente. Campos completos e efeitos colaterais no README, seção "Pool de conexões".
 
 ---
 
@@ -1064,7 +1093,7 @@ O módulo `src/Messaging/Messaging.Interfaces.pas` define o contrato de mensager
 
 `TMessagingConfig` carrega os parâmetros de conexão (Host, Port, User, Password, VHost) normalmente via `TAppConfig`.
 
-`TMessagingRegistry` (`Messaging.Adapters.Registry.pas`) resolve o `IMessagingFactory` por nome — mesmo padrão de `Db.Adapters.Registry.TDBRegistry`. O projeto de negócio nunca referencia o pacote concreto do adapter, só a string do nome que ele registrou.
+`TMessagingRegistry` (`Messaging.Adapters.Registry.pas`) resolve o `IMessagingFactory` por nome — mesmo padrão de `PascalDb.Registry.TDBRegistry`. O projeto de negócio nunca referencia o pacote concreto do adapter, só a string do nome que ele registrou.
 
 ### Padrão de uso (consumidor)
 

@@ -10,7 +10,7 @@ type
 
   { TMessagingRegistry
     Registro de factories de mensageria por nome (ex.: 'rabbitmq', 'stomp').
-    Mesmo padrão de Db.Adapters.Registry.TDBRegistry: o projeto de negócio
+    Mesmo padrão de PascalDb.Registry.TDBRegistry (pascal-db-faa): o projeto de negócio
     resolve o adapter por string, sem referenciar o pacote concreto. O
     adapter concreto se registra sozinho na sua própria unit initialization. }
 
