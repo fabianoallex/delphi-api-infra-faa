@@ -100,7 +100,7 @@ API e modelo de ownership diferentes. Atinge `Common.JsonMapper`, `Swagger.Build
 
 | Tier | Units | Linhas | Esforço |
 |---|---|---|---|
-| **1 — sai quase de graça** | Optionals, OrderBy, SystemContext, DTO.Base, Db.Interfaces, Db.Mock, Db.SqlDialect, Db.Adapters.Registry, Messaging.\*, MCP.Utils, Pagination, ClockCache, RateLimitState, SafeLog, Db.Constants | ~4.300 | baixo |
+| **1 — sai quase de graça** | Optionals, OrderBy, SystemContext, DTO.Base, Db.Interfaces, Db.Mock, Db.SqlDialect, Db.Adapters.Registry, Messaging.\*, MCP.Utils, Pagination, ClockCache, RateLimitState, Db.Constants | ~4.300 | baixo |
 | **2 — ajuste mecânico** | Config e FileLog (`System.IOUtils`), SqlLoader (`Winapi.Windows`/`FindResource` — só Windows), Migrations e Connection.Pool (closures) | ~2.400 | médio |
 | **3 — reescrita** | Db.Adapters.FireDAC, Common.Helpers, MCP.Server, middlewares Horse, HealthCheck | ~3.500 | alto |
 | **4 — redesenho conceitual** | JsonMapper, Swagger.Builder, Swagger.Attributes, Swagger.Server | ~1.800 | alto, **e muda a convenção de DTO** |
@@ -205,9 +205,58 @@ for f in $(find src -name '*.pas' | grep -v __history | sort); do
 done
 ```
 
-Atenção a um falso positivo conhecido do filtro `HORSE`: `Common.SafeLog`, `Common.Pagination` e
+Atenção a um falso positivo conhecido do filtro `HORSE`: `Common.Pagination` e
 `Common.RateLimitState` só citam Horse em comentário — não têm dependência real e pertencem ao
 tier 1.
+
+---
+
+## Notas para revisão — 2026-10-02: RTTI medida (FPC 3.2.2 × Delphi 12)
+
+> Notas acrescentadas depois da avaliação, **ainda não incorporadas ao texto acima**. Vêm de
+> probes compilados e rodados nos dois compiladores (FPC 3.2.2 Win64; Delphi 12 CE Win32 e
+> Win64). Os probes e o catálogo completo estão na skill `dual-compiler-delphi-lazarus`:
+> `references/rtti-gotchas.md` e `scripts/rtti-probes/`, no repositório
+> [pascal-skills-faa](https://github.com/fabianoallex/pascal-skills-faa). Para re-verificar
+> um gatilho num FPC novo, rode `python run_probes.py <probe>` nessa pasta.
+
+**Correção no bloqueio 1 (tabela, linha do `Swagger.Builder`).** O FPC 3.2.2 **não tem atributos
+customizados em lugar nenhum**: `TCustomAttribute` não existe e `[Attr]` é erro de sintaxe, inclusive
+em tipos e em propriedades published. O "suporte limitado a tipos e propriedades published" vale
+para o FPC trunk, não para o estável. O bloqueio é maior do que está descrito.
+
+**G1 medido (probe `p05`).** No 3.2.2, `GetProperties` devolve só as propriedades `published`. Uma
+classe sem `{$M+}` volta com lista vazia, e `TStringList` volta com 0 propriedades (no Delphi, 25). O
+`{$RTTI EXPLICIT ...}` é ignorado, só gera warning. Continua falso no 3.2.2.
+
+**G2 medido (probes `p11`/`p12`).** Atributos em método, em campo, em propriedade e em classe: nenhum
+compila no 3.2.2. Além disso, `GetDeclaredMethods`/`GetMethod` em **classe** voltam vazios no FPC,
+mesmo para métodos published (probe `p07`). O `Swagger.Builder.pas:373` (`LMethod.GetAttributes` nos
+getters) depende das duas coisas.
+
+**G4 não foi medido.** Os probes cobrem `TRttiProperty.SetValue` com `Integer` em propriedade
+published (funciona nos dois), mas não com `tkInterface`. Continua em aberto.
+
+**Divergências silenciosas que atingem o `TJsonMapper` mesmo depois que G1/G2 virarem.** Compilam
+sem erro e erram em execução no FPC:
+- `Common.JsonMapper.pas:249/405/633` despacham strings em `tkString, tkUString`. No FPC em
+  `{$MODE DELPHI}`, `string` é **`tkAString`** e cai fora do `case`.
+- `Common.JsonMapper.pas:271/426/651` tratam Boolean dentro de `tkEnumeration`. No FPC, `Boolean` é
+  **`tkBool`**, então o ramo nunca é alcançado. Testar `Handle = TypeInfo(Boolean)` antes do `case`
+  funciona nos dois.
+- `Common.JsonMapper.pas:736` usa `ARttiType.ElementType` (`TRttiDynamicArrayType`), que não existe no
+  FPC 3.2.2. `TValue.GetArrayLength`/`GetArrayElement` existem nos dois.
+- `Swagger.Builder.pas:228-239` mapeia pelo **nome** do tipo (`'Boolean'`, `'Currency'`, ...). Nomes
+  divergem entre os compiladores (`Integer` aparece como `LongInt`, `string` como `AnsiString`,
+  genéricos como `TBox$1$crc...`). Os nomes exatos que esse trecho usa não foram medidos.
+- `TValue.ToString` devolve `''` no FPC para float, set, record, array e objeto.
+
+**Observação sobre o CLAUDE.md** ("RTTI de métodos de interface não é gerado pelo compilador"). Isso
+vale para interfaces **sem `{$M+}`**. Com `{$M+}` na interface, os dois compiladores geram RTTI dos
+métodos (nomes, parâmetros, retorno), e `Invoke`/`TVirtualInterface` funcionam igual (probes
+`p08`/`p09`). Hoje os atributos ficam na classe por causa dessa limitação. Se um dia isso for
+redesenhado para o FPC, interface com `{$M+}` é a única parte da RTTI estendida que já é portável,
+embora sem atributos no 3.2.2.
 
 ---
 
