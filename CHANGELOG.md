@@ -4,6 +4,22 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); 
 [SemVer](https://semver.org/lang/pt-BR/). Antes da 0.1.0 a lib não tinha versões: os consumidores
 apontavam o submódulo para um commit.
 
+## [Não lançado]
+
+### Mudado
+
+- **Quebra de compatibilidade:** `Common.SafeLog` foi removido. O `SafeWriteln` agora vem da
+  pascal-common-faa 1.3.0 (`PascalCommon.SafeLog`), a mesma unit que a pascal-db-faa 0.12.0 usa:
+  um lock só para o console do processo (antes eram dois, um em cada lib, e uma linha de cada
+  lado podia sair intercalada). Mesma API e mesmo no-op sem console; no FPC ainda faz
+  `Flush(Output)` dentro do lock (com stdout redirecionado as linhas saíam corrompidas). Troque
+  `Common.SafeLog` por `PascalCommon.SafeLog` no `uses` e no `.dpr`/`.dproj`.
+- **Quebra de compatibilidade:** exige a pascal-common-faa **1.3.0** (checagem em
+  `Common.DTO.Base`) e a pascal-db-faa **0.12.0** (checagem em `Horse.Middleware.ErrorHandler`).
+  Roteiro no fim de `docs/migracao-pascal-db-faa.md`.
+- Testes da lib: submodules `external/pascal-common-faa` na 1.3.0 e `external/pascal-db-faa` na
+  0.12.0.
+
 ## [0.3.0] — 2026-10-06
 
 ### Mudado

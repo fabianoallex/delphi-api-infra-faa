@@ -11,8 +11,9 @@ uses
 // uma mensagem clara se a cópia fornecida for antiga demais. Fica aqui porque
 // um consumidor pode usar só os DTOs; a camada de banco (pascal-db-faa) faz a
 // mesma checagem por conta própria.
-{$IF PASCALCOMMON_VERSION < 10000}
-  {$MESSAGE FATAL 'delphi-api-infra-faa precisa da pascal-common-faa 1.0.0 ou mais nova'}
+// 1.3.0: PascalCommon.SafeLog (Common.FileLog, Horse.Middleware.Logger).
+{$IF PASCALCOMMON_VERSION < 10300}
+  {$MESSAGE FATAL 'delphi-api-infra-faa precisa da pascal-common-faa 1.3.0 ou mais nova'}
 {$IFEND}
 
 type

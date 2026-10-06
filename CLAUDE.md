@@ -11,13 +11,14 @@ comuns para que agentes de IA produzam código correto desde a primeira tentativ
 Os tipos opcionais (`IOptXxx`/`INullXxx`/`IOptNullXxx`, `TOptionals`), `TClock`/`TTicker`/`TSleep`
 e `TClockCache` vêm da [pascal-common-faa](https://github.com/fabianoallex/pascal-common-faa)
 (units `PascalCommon.Optionals`, `PascalCommon.SystemContext`, `PascalCommon.ClockCache`). As
-antigas `Common.Optionals`/`Common.SystemContext`/`Common.ClockCache` não existem mais — não as
+antigas `Common.Optionals`/`Common.SystemContext`/`Common.ClockCache` — e, desde a v0.4.0, `Common.SafeLog`
+(hoje `PascalCommon.SafeLog`, pascal-common-faa 1.3.0) — não existem mais — não as
 recrie nem copie código de lá para cá.
 
 - `external/pascal-common-faa` (tag fixa) é **só** para os testes desta lib. O projeto consumidor
   fornece a cópia única (submodule próprio + search path dele); nunca aponte o search path de um
   consumidor para `infra\external\...`.
-- Versão mínima checada em `Common.DTO.Base` (`PASCALCOMMON_VERSION`; a pascal-db-faa checa a
+- Versão mínima (1.3.0) checada em `Common.DTO.Base` (`PASCALCOMMON_VERSION`; a pascal-db-faa checa a
   dela em `PascalDb.Interfaces`). Ao passar a usar algo novo da pascal-common-faa, suba o mínimo.
 - **Duração se mede com `TTicker`** (monotônico), nunca com `TClock.Now`: `TClock` é hora do dia e
   salta com horário de verão/NTP. O pool da pascal-db-faa (ociosidade) e `Common.RateLimitState`
@@ -45,7 +46,7 @@ banco é feita na pascal-db-faa.
   `PascalDb.SqlLoader`/`PascalDb.SqlDialect`/`PascalDb.Migrations`/`PascalDb.Mock`.
   `TFDConfig` → `TDatabaseConfig` (`PascalDb.Adapter.Base`), sempre numa variável
   `IDatabaseConfig` (as properties só existem na interface).
-- Versão mínima: **0.11.0**, checada em `Horse.Middleware.ErrorHandler`
+- Versão mínima: **0.12.0**, checada em `Horse.Middleware.ErrorHandler`
   (`PASCALDB_VERSION`, unit `PascalDb.Version`). Ao passar a usar algo novo da pascal-db-faa,
   suba o mínimo lá. O que precisar mudar na pascal-db-faa vai anotado em
   `.ci/findings-for-pascal-db-faa.md`.
@@ -901,7 +902,7 @@ LFactory := TFDFactory.Create(LConfig, nil);
 
 ## Logging
 
-`Common.SafeLog.SafeWriteln` — `Writeln` thread-safe pro console (`TCriticalSection` global). Use em qualquer ponto que pode rodar fora da main thread (handler HTTP, `OnRequest` de pipe-server, thread de pool) — `Writeln` direto corrompe o buffer do CRT sob concorrência.
+`PascalCommon.SafeLog.SafeWriteln` (pascal-common-faa 1.3.0; até a infra v0.3.0 era `Common.SafeLog`) — `Writeln` thread-safe pro console (`TCriticalSection` global, **a mesma** usada pela pascal-db-faa: um lock só por processo; no FPC ainda faz `Flush(Output)` dentro do lock). Use em qualquer ponto que pode rodar fora da main thread (handler HTTP, `OnRequest` de pipe-server, thread de pool) — `Writeln` direto corrompe o buffer do CRT sob concorrência.
 
 Num binário sem `{$APPTYPE CONSOLE}` (serviço Windows, app VCL/FMX) `SafeWriteln` é **no-op** por design — sem console, `Writeln(Output)` levantaria `EInOutError` (105), e o mesmo código de startup precisa servir aos dois binários. Consequência ao portar para serviço: **diagnóstico que só existia via `SafeWriteln` some sem aviso** — inclusive o fallback textual de `TDBMigrationEngine.Execute` sem `AOnEvent` e o aviso de falha de escrita do próprio `Common.FileLog`. Passe os callbacks (`AOnEvent`, `TErrorHandlerMiddleware.Register(AOnError)`) apontando para `FileLog`, e use `TService.LogMessage` (Event Viewer) para falhas de inicialização do serviço.
 
@@ -967,7 +968,7 @@ Dois pontos onde aplicar por padrão em todo projeto novo:
   "with BOM") antes de commitar
 - SQL inline no código — todo SQL vai em arquivo `.sql` + `queries.rc`
 - Depender de lembrar de rodar `brcc32` manualmente após adicionar/editar SQL — configure o pre-build event (ver "Build automático dos `.res`" em "Padrão de SQL") em vez de confiar em disciplina humana
-- `Writeln` direto em código que pode rodar fora da main thread (handler HTTP, `OnRequest` de pipe-server, thread de pool) — usar `SafeWriteln` (`Common.SafeLog`)
+- `Writeln` direto em código que pode rodar fora da main thread (handler HTTP, `OnRequest` de pipe-server, thread de pool) — usar `SafeWriteln` (`PascalCommon.SafeLog`)
 - `IOptional.Value` sem checar `HasValue` antes
 - Checar `Assigned` num campo `IOptXxx`/`INullXxx`/`IOptNullXxx` individual do DTO antes de `.HasValue` — o getter já garante não-nil via `TOptionals.Safe` (ver "Campos opcionais"); `Assigned` só se justifica no `ADto` inteiro, nunca nos seus campos
 - Chamar `LResult.Next` antes de checar `LResult.IsEmpty` — o padrão correto é `while not LResult.Eof`

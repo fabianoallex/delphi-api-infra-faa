@@ -111,7 +111,7 @@ uses
   System.IOUtils,
   System.Hash,
   Common.Config,
-  Common.SafeLog;
+  PascalCommon.SafeLog;
 
 { TLogTruncate }
 

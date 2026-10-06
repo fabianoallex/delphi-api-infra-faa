@@ -50,7 +50,7 @@ uses
   System.Generics.Collections,
   Web.HTTPApp,
   Horse,
-  Common.SafeLog;
+  PascalCommon.SafeLog;
 
 const
   REQUEST_ID_HEADER = 'X-Request-Id';

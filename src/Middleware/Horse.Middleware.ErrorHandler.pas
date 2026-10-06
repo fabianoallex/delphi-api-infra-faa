@@ -105,12 +105,13 @@ uses
   PascalDb.Version,
   PascalDb.Interfaces;
 
-// EConstraintViolationException e ExecSql com linhas afetadas chegaram na 0.11.0.
+// EConstraintViolationException e ExecSql com linhas afetadas chegaram na 0.11.0;
+// a 0.12.0 é a que usa o PascalCommon.SafeLog (um lock só no console com a infra).
 // A aplicação fornece a pascal-db-faa (modules/pascal-db-faa): uma cópia antiga
 // demais para a build aqui, com a versão que falta, em vez de "Undeclared
 // identifier" mais abaixo.
-{$IF PASCALDB_VERSION < 1100}
-  {$MESSAGE FATAL 'delphi-api-infra-faa precisa da pascal-db-faa 0.11.0 ou mais nova'}
+{$IF PASCALDB_VERSION < 1200}
+  {$MESSAGE FATAL 'delphi-api-infra-faa precisa da pascal-db-faa 0.12.0 ou mais nova'}
 {$IFEND}
 
 const

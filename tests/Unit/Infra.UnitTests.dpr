@@ -24,7 +24,6 @@ uses
   Common.JsonResolverTests in 'Common.JsonResolverTests.pas',
   Common.JsonSerializerTests in 'Common.JsonSerializerTests.pas',
   Common.RateLimitState in '..\..\src\Common\Common.RateLimitState.pas',
-  Common.SafeLog in '..\..\src\Common\Common.SafeLog.pas',
   Common.FileLog in '..\..\src\Common\Common.FileLog.pas',
   Common.FileLogTests in 'Common.FileLogTests.pas',
   Swagger.SchemaTests in 'Swagger.SchemaTests.pas',

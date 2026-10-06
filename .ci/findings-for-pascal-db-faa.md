@@ -6,9 +6,9 @@ logo depois. Não editar a pascal-db-faa a partir daqui: cada item é trabalhado
 **na própria pascal-db-faa** (dual-compiler, três adapters, suíte de contrato, CI FPC/Linux).
 O que depende disso do lado da infra está em "Depois, na infra" no fim de cada item.
 
-**Situação (2026-10-06):** 1, 4 e 5 resolvidos na pascal-db-faa **0.11.0** (`1a29107`) e já
-consumidos pela infra (v0.3.0). Pendentes: **2** (documentação, na pascal-db-faa) e **3** (sessão
-na pascal-common-faa).
+**Situação (2026-10-06):** todos resolvidos. 1, 4 e 5 na pascal-db-faa **0.11.0** (`1a29107`,
+infra v0.3.0); 2 e 3 na pascal-db-faa **0.12.0** (`ca9e681`) + pascal-common-faa **1.3.0**
+(`7c88a0f`, `PascalCommon.SafeLog`), infra v0.4.0.
 
 ## 1. Sem constante de versão — RESOLVIDO na 0.11.0 (`PascalDb.Version`, `PASCALDB_VERSION`)
 
@@ -25,7 +25,7 @@ por `PascalDb.Interfaces`.
 **Depois, na infra:** `{$IF PASCALDB_VERSION < ...}{$MESSAGE FATAL ...}` em
 `Horse.Middleware.ErrorHandler` (a unit da infra que mais depende de classes recentes).
 
-## 2. `TDatabaseConfig` sem properties na classe — PENDENTE
+## 2. `TDatabaseConfig` sem properties na classe — RESOLVIDO na 0.12.0 (documentado; a classe continua sem properties de propósito: com elas, `LConfig: TDatabaseConfig` compilaria e o erro viraria use-after-free em runtime)
 
 As properties (`ConnectionParams`, `SQLDialect`, `PoolIniConnections`...) só existem em
 `IDatabaseConfig`. O `TFDConfig` da infra tinha `ConnectionParams`/`SQLDialect`/`SQLDirectory`
@@ -36,7 +36,7 @@ qualquer forma (é `TInterfacedObject`), mas a mensagem de erro não leva a essa
 uma linha no header de `PascalDb.Adapter.Base` / `docs/getting-started.md` dizendo
 explicitamente "declare `IDatabaseConfig`, a classe não tem properties".
 
-## 3. Dois `SafeWriteln` — PENDENTE (sessão na pascal-common-faa)
+## 3. Dois `SafeWriteln` — RESOLVIDO (pascal-common-faa 1.3.0 `PascalCommon.SafeLog`; `PascalDb.SafeLog` removido na 0.12.0; `Common.SafeLog` removido na infra v0.4.0)
 
 `PascalDb.SafeLog` e o `Common.SafeLog` da infra são cópias, cada uma com sua seção crítica: num
 processo que usa as duas, um `SafeWriteln` de cada lado pode intercalar. Candidato a ir para a

@@ -72,6 +72,8 @@ compatibilidade `Db.*` reexportando aliases), como breaking change da infra (v0.
   em compilação.
 - O lado Delphi da pascal-db-faa é testado à mão, na IDE (CI cobre FPC/Linux).
 - Dois `SafeWriteln` (`Common.SafeLog` e `PascalDb.SafeLog`), cada um com sua seção crítica.
+  **Resolvido na infra v0.4.0:** os dois saíram; ficou o `PascalCommon.SafeLog` (pascal-common-faa
+  1.3.0), usado pela infra e pela pascal-db-faa 0.12.0.
   Mantidos separados por ora (a infra não força a pascal-db-faa em quem só usa `Common.*`);
   anotado em `.ci/findings-for-pascal-db-faa.md` como candidato à pascal-common-faa.
 - Sem constante de versão na pascal-db-faa: a infra não consegue exigir o mínimo em compilação
@@ -114,3 +116,16 @@ Consumidor que já está na infra v0.2.x:
    `EConstraintViolationException`.
 5. SQLite: as FKs passam a ser verificadas (`ForeignKeys=Off` no FireDAC devolve o
    comportamento antigo).
+
+---
+
+## Infra v0.4.0: pascal-db-faa 0.12.0 e pascal-common-faa 1.3.0
+
+1. `git -C modules/pascal-common-faa checkout v1.3.0` e `git -C modules/pascal-db-faa checkout
+   v0.12.0` (+ `git add` dos dois), e avançar o `infra` para a v0.4.0. Com versões antigas a build
+   para com `F1054` dizendo qual falta (a pascal-db-faa 0.12.0 também exige a common 1.3.0).
+2. `Common.SafeLog` não existe mais: trocar por `PascalCommon.SafeLog` em todo `uses` e, no
+   `.dpr`/`.dproj`, a linha `Common.SafeLog in 'infra\src\Common\Common.SafeLog.pas'` por
+   `PascalCommon.SafeLog in 'modules\pascal-common-faa\src\PascalCommon.SafeLog.pas'`. Mesma
+   API (`SafeWriteln` com e sem `Format`), mesmo no-op sem console.
+3. Quem usava `PascalDb.SafeLog` diretamente: idem, `PascalCommon.SafeLog`.

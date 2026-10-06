@@ -49,7 +49,7 @@ aqui: vem da pascal-db-faa (ver "Dependência: pascal-db-faa").
 
 Os tipos opcionais/anuláveis (`IOptXxx`, `INullXxx`, `IOptNullXxx`, `TOptionals`), o relógio e
 o sleep injetáveis (`TClock`, `TTicker`, `TSleep`) e o cache flyweight (`TClockCache`) vêm da
-[pascal-common-faa](https://github.com/fabianoallex/pascal-common-faa) (1.0.0 ou mais nova):
+[pascal-common-faa](https://github.com/fabianoallex/pascal-common-faa) (1.3.0 ou mais nova):
 units `PascalCommon.Optionals`, `PascalCommon.SystemContext` e `PascalCommon.ClockCache`. Os
 nomes dos tipos são os mesmos que esta lib tinha em `Common.Optionals`, `Common.SystemContext` e
 `Common.ClockCache` (removidas).
@@ -60,7 +60,7 @@ submodule da pascal-common-faa e põe o `src` **dele** no search path — é a �
 processo. Isso importa quando a aplicação também usa outra lib que depende da pascal-common-faa
 (pascal-db-faa, pascal-amqp-faa...): com uma cópia por lib, a aplicação teria dois `IOptString`
 diferentes com o mesmo GUID. Uma versão antiga demais para a build com
-`F1054 delphi-api-infra-faa precisa da pascal-common-faa 1.0.0 ou mais nova` (checagem em
+`F1054 delphi-api-infra-faa precisa da pascal-common-faa 1.3.0 ou mais nova` (checagem em
 `Common.DTO.Base`; a pascal-db-faa faz a dela, em `PascalDb.Interfaces`).
 
 Atualizando um projeto que usava uma versão anterior a 0.1.0: ver
@@ -70,7 +70,7 @@ Atualizando um projeto que usava uma versão anterior a 0.1.0: ver
 
 `IDBFactory`, `IQuery`, `IParams`, `IQueryResult`, `IScopeTransaction`, o pool, `TSQLLoader`,
 `TDBMigrationEngine`, `TDBRegistry`, `TMockDBFactory` e o adapter FireDAC vêm da
-[pascal-db-faa](https://github.com/fabianoallex/pascal-db-faa) (v0.11.0 ou mais nova — a build para com `F1054` se for mais velha), units
+[pascal-db-faa](https://github.com/fabianoallex/pascal-db-faa) (v0.12.0 ou mais nova — a build para com `F1054` se for mais velha), units
 `PascalDb.*`. Os nomes dos tipos são os mesmos que esta lib tinha em `src/Db` (removido na
 v0.2.0); o que muda é o nome das units e `TFDConfig` → `TDatabaseConfig`
 (`PascalDb.Adapter.Base`). Mesma regra da pascal-common-faa: o submodule
@@ -115,9 +115,9 @@ E a pascal-common-faa, como submodule próprio da aplicação (ver "Dependência
 
 ```bash
 git submodule add https://github.com/fabianoallex/pascal-common-faa modules/pascal-common-faa
-git -C modules/pascal-common-faa checkout v1.2.0
+git -C modules/pascal-common-faa checkout v1.3.0
 git submodule add https://github.com/fabianoallex/pascal-db-faa modules/pascal-db-faa
-git -C modules/pascal-db-faa checkout v0.11.0
+git -C modules/pascal-db-faa checkout v0.12.0
 ```
 
 Os dois sem `--recursive`: os submodules deles (`external/`) são só para os testes de cada lib.
@@ -1655,13 +1655,15 @@ do serviço Windows (reiniciar em falha) como rede de segurança adicional.
 
 ## Logging
 
-### Console (`Common.SafeLog`)
+### Console (`PascalCommon.SafeLog`)
 
 `Writeln` direto no console não é thread-safe: handlers HTTP (Horse) e `OnRequest` de pipe-server rodam em thread pool, e duas escritas concorrentes corrompem o buffer do CRT (mesmo sintoma de Access Violation aleatório). `SafeWriteln` serializa a escrita via `TCriticalSection` global.
 
+A unit é da [pascal-common-faa](https://github.com/fabianoallex/pascal-common-faa) (1.3.0 ou mais nova) e é a mesma que a pascal-db-faa usa (migrations): um lock só para o console do processo inteiro. Até a infra v0.3.0 ela se chamava `Common.SafeLog` e existia uma cópia na pascal-db-faa (`PascalDb.SafeLog`); as duas foram removidas — troque o `uses`.
+
 ```pascal
 uses
-  Common.SafeLog;
+  PascalCommon.SafeLog;
 
 SafeWriteln('Aplicação iniciada');
 SafeWriteln('Requisição %s %s -> %d', [Req.Method, Req.PathInfo, Res.Status]);
