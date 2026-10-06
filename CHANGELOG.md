@@ -4,7 +4,7 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); 
 [SemVer](https://semver.org/lang/pt-BR/). Antes da 0.1.0 a lib não tinha versões: os consumidores
 apontavam o submódulo para um commit.
 
-## [Não lançado]
+## [0.2.0] — 2026-10-06
 
 ### Mudado
 
@@ -23,6 +23,8 @@ apontavam o submódulo para um commit.
 - `TErrorHandlerMiddleware`: `ELockConflictException` → **409**, com `AOnError`. No 503 e no 409
   o corpo traz mensagem fixa em português em vez de `E.Message` (as exceções da pascal-db-faa são
   em inglês); a linha de `AOnError` do 503 traz a classe da exceção no lugar da mensagem genérica.
+- Testes e versão recomendada aos consumidores (README, guia de migração) passam à
+  pascal-common-faa v1.2.0. Mínimo exigido continua 1.0.0.
 - Testes: os unitários `Db.PoolTests`, `Db.SqlLoaderTests` e `Db.MockTests` saem (a pascal-db-faa
   tem os seus); o de integração `Db.ConnectionTests` fica, agora sobre a pascal-db-faa.
 
