@@ -45,6 +45,12 @@ Da raiz do projeto consumidor (nunca de dentro de `infra/`):
    seria desfeito sem aviso). O `--recursive` continua necessário (SwagDoc é submodule aninhado da infra) e, com ele, vem
    também `infra/external/pascal-common-faa`. Ela fica em disco, mas **não entra no search path**.
 
+   **Desde a v0.2.0, prefira não usar `--recursive`:** `infra/external/pascal-db-faa` tem os
+   próprios `external/`, e o recursivo desce até 3 níveis
+   (`.../external/pascal-common-faa/external/pascal-jsonmapper-faa`). No retaweb-local, numa pasta
+   de rede (`\\servidor\...`), isso quebrou com `Filename too long` (2026-10-07). Use
+   `git submodule update --init infra` + `git -C infra submodule update --init modules/swag-doc`.
+
 2. **Adicionar a pascal-common-faa como submodule da aplicação**, na mesma pasta dos outros
    módulos (`modules/`, onde já está o Horse):
 
@@ -116,7 +122,7 @@ Da raiz do projeto consumidor (nunca de dentro de `infra/`):
 |---|---|---|
 | delphi-api-starter | mesma máquina | **migrado** em 2026-10-05 (`553f9b5`, merge `c91edf3`): infra v0.1.0, `modules/pascal-common-faa` v1.1.1, Win64 habilitado; o pedido abaixo fica como referência |
 | api-test | mesma máquina | **migrado** em 2026-10-05 (`d5718b6`, só local: o repo não tem remote). Além deste guia precisou do Horse 3.3.2 (o ErrorHandler atual usa `THorse.OnError`), `TErrorHandlerMiddleware.New` → `.Register` e `app.ini` → `.env` |
-| retaweb-local | outra máquina (`R:\Fabiano\supermercado\retaweb-local`) | **ainda não migrado**. Seguir os passos acima nos 3 `.dproj` (API + testes unitários + integração, os mesmos que já têm o pre-build do `build_sql_res.bat`). Se ele também usar pascal-db-faa ou amqp algum dia, esta migração é o que evita o conflito de GUIDs |
+| retaweb-local | outra máquina (`R:\Fabiano\supermercado\retaweb-local`) | **migrado** em 2026-10-07, direto de `aa49f2b` para a v0.4.0 (common + db + AMQP + pipes de uma vez), na branch `NFe` (merge `240dde4`, pushed; ainda não na `master`). Testado lá: build dos 6 projetos + ClientNFCe, unitários 27/27, integração 4/4, RabbitMQ → pipes → frente de loja, fallback, serviço. O frente de loja (`ClientNFCe`, mesmo repo) usa os `modules/` do retaweb pelo search path. Achados: AMQP e pipes vinham do Library Path da IDE, em versões anteriores à pascal-common-faa (os pipes ainda com `PipeTickMs`, hoje `PcTickMs`), e passam a submodules em `modules/`; o `RetaWebLocalSvc.dproj` não tinha Pre-build event |
 
 ## Pedido para a sessão no delphi-api-starter
 

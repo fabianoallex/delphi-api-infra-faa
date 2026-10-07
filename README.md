@@ -125,8 +125,17 @@ Os dois sem `--recursive`: os submodules deles (`external/`) são só para os te
 ### Clonar um projeto que já usa este submodule
 
 ```bash
-git clone --recurse-submodules <url-do-seu-projeto>
+git clone <url-do-seu-projeto>
+cd <projeto>
+git submodule update --init
+git -C infra submodule update --init modules/swag-doc
 ```
+
+Sem `--recurse-submodules`/`--recursive`: a infra e as libs `pascal-*-faa` têm submodules em
+`external/` que são só para os testes delas, aninhados até 3 níveis
+(`infra/external/pascal-db-faa/external/pascal-common-faa/external/pascal-jsonmapper-faa`). O
+recursivo baixa todos e, num caminho longo (pasta de rede, `\\servidor\...`), quebra com
+`Filename too long`. Da infra, a aplicação só precisa do `modules/swag-doc`.
 
 ### Atualizar o submodule para a versão mais recente
 
@@ -250,11 +259,16 @@ Limitação: Pre-Build Event só dispara para build feito através do `.dproj` (
 
 ### 6. Submodule swag-doc
 
-O módulo Swagger depende de [SwagDoc](https://github.com/marcelojaloto/SwagDoc) como nested submodule dentro de `infra/`. Ao clonar o projeto que usa esta infra, inicialize todos os submodules recursivamente:
+O módulo Swagger depende de [SwagDoc](https://github.com/marcelojaloto/SwagDoc) como nested submodule dentro de `infra/`. Ao clonar o projeto que usa esta infra, inicialize os submodules do projeto e, da infra, só o SwagDoc:
 
 ```bash
-git submodule update --init --recursive
+git submodule update --init
+git -C infra submodule update --init modules/swag-doc
 ```
+
+Não use `--recursive`: ele desce também nos `external/` (submodules só de teste) da infra e de cada
+`pascal-*-faa`, até 3 níveis, e num caminho longo quebra com `Filename too long` (ver "Clonar um
+projeto que já usa este submodule").
 
 ---
 
