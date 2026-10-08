@@ -4,6 +4,19 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); 
 [SemVer](https://semver.org/lang/pt-BR/). Antes da 0.1.0 a lib não tinha versões: os consumidores
 apontavam o submódulo para um commit.
 
+## [0.4.1] — 2026-10-08
+
+### Corrigido
+
+- **Rate limit por IP agrupava todos os clientes numa chave só.** `THorseRequest.RemoteAddr` vem
+  vazio no provider console do Horse (Indy no Delphi), porque só os providers "crus" (Epoll, IOCP,
+  HttpSys, Daemon, LCL) o preenchem. Sem `X-Forwarded-For`, o `TRateLimitMiddleware` usava a
+  chave `'unknown'` para todo mundo, e o limite (ex.: 60 req/min) valia para todos os clientes
+  somados. Agora o IP vem de `RawWebRequest.RemoteAddr` quando o do Horse está vazio. O
+  `TLoggerMiddleware` tinha o mesmo caso e registrava `-` no lugar do IP. Medido com Horse 3.3.2
+  (`72cc45f`), Delphi 12 Win32: `RemoteAddr=[]`, `RawWebRequest.RemoteAddr=[127.0.0.1]`.
+  Encontrado ao portar os middlewares para a pascal-api-infra-faa.
+
 ## [0.4.0] — 2026-10-06
 
 ### Mudado

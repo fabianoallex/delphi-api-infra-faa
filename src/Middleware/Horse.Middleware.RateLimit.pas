@@ -63,6 +63,7 @@ uses
   System.SysUtils,
   System.DateUtils,
   System.JSON,
+  Web.HTTPApp,
   PascalCommon.SystemContext,
   Horse;
 
@@ -82,6 +83,14 @@ begin
   end
   else
     Result := Req.RemoteAddr;
+
+  // THorseRequest.RemoteAddr só é preenchido pelos providers "crus" do Horse
+  // (Epoll, IOCP, HttpSys, Daemon, LCL); no provider console (Indy) vem vazio
+  // e o endereço fica no TWebRequest. Medido com Horse 3.3.2 (72cc45f), Delphi
+  // 12 Win32: RemoteAddr=[] e RawWebRequest.RemoteAddr=[127.0.0.1]. Sem isso,
+  // todo cliente sem X-Forwarded-For caía na mesma chave 'unknown'.
+  if Result.IsEmpty and (Req.RawWebRequest <> nil) then
+    Result := Req.RawWebRequest.RemoteAddr;
 
   if Result.IsEmpty then
     Result := 'unknown';

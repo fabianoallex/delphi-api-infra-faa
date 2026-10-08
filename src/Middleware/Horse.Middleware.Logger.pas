@@ -72,6 +72,11 @@ begin
   else
     Result := Req.RemoteAddr;
 
+  // Mesmo caso de ExtractClientIP (Horse.Middleware.RateLimit): no provider
+  // console o RemoteAddr do Horse vem vazio e o endereço está no TWebRequest.
+  if Result.IsEmpty and (Req.RawWebRequest <> nil) then
+    Result := Req.RawWebRequest.RemoteAddr;
+
   if Result.IsEmpty then
     Result := '-';
 end;
